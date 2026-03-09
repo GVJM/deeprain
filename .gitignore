@@ -1,0 +1,29 @@
+# Data folders
+dados/
+dados_sabesp/
+dados_barragens_btg/
+
+# Model outputs
+PrecipModels/outputs/
+PrecipModels/outputs_inmet_btg_barragens/
+PrecipModels/outputs_sabesp/
+
+.claude/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
