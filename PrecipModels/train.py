@@ -33,6 +33,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 
+from datasets import TemporalDataset
 from data_utils import load_data, load_data_with_cond, denormalize
 from base_model import BaseModel
 from models import get_model, MODEL_NAMES
@@ -309,6 +310,95 @@ MODEL_DEFAULTS = {
         "batch_size": 128,
         "kl_warmup": 0,
     },
+    # ── AR (Autoregressive) Models ──────────────────────────────────────────
+    "ar_vae": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 50,
+        "latent_size": 64,
+    },
+    "ar_flow_match": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_latent_fm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 50,
+        "latent_size": 32,
+    },
+    "ar_real_nvp": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0001,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_real_nvp_lstm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0001,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_glow": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0001,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_glow_lstm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0001,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_mean_flow": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_mean_flow_lstm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_flow_map": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
+    "ar_flow_map_lstm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+    },
     }
 
 
@@ -342,12 +432,43 @@ ARCH_DEFAULTS = {
     "thresholded_vae_mc":       {},
     "thresholded_real_nvp_mc":  {"hidden_size": 256, "n_coupling": 12},
     "thresholded_glow_mc":      {"hidden_size": 128, "n_layers": 8},
-
+    # ── AR Models ─────────────────────────────────────────────────────────────
+    "ar_vae":            {"gru_hidden": 128, "hidden_size": 256, "window_size": 30},
+    "ar_flow_match":     {"gru_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "n_sample_steps": 50, "window_size": 30},
+    "ar_latent_fm":      {"gru_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "n_sample_steps": 50, "window_size": 30},
+    "ar_real_nvp":       {"rnn_hidden": 128, "n_coupling": 8, "hidden_size": 256,
+                          "window_size": 30, "rnn_type": "gru"},
+    "ar_real_nvp_lstm":  {"rnn_hidden": 128, "n_coupling": 8, "hidden_size": 256,
+                          "window_size": 30, "rnn_type": "lstm"},
+    "ar_glow":           {"rnn_hidden": 128, "n_steps": 8, "hidden_size": 128,
+                          "window_size": 30, "rnn_type": "gru"},
+    "ar_glow_lstm":      {"rnn_hidden": 128, "n_steps": 8, "hidden_size": 128,
+                          "window_size": 30, "rnn_type": "lstm"},
+    "ar_mean_flow":      {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30,
+                          "mf_ratio": 0.25, "rnn_type": "gru"},
+    "ar_mean_flow_lstm": {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30,
+                          "mf_ratio": 0.25, "rnn_type": "lstm"},
+    "ar_flow_map":       {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru"},
+    "ar_flow_map_lstm":  {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "lstm"},
 }
 
 
 # Modelos que usam condicionamento (_mc suffix)
 _MC_MODELS = {"hurdle_simple_mc", "vae_mc", "real_nvp_mc", "glow_mc", "flow_match_mc", "flow_match_film_mc", "hurdle_vae_cond_mc", "latent_fm_mc", "hurdle_latent_fm_mc", "thresholded_latent_fm_mc", "thresholded_vae_mc", "thresholded_real_nvp_mc", "thresholded_glow_mc"}
+
+_TEMPORAL_MODELS = {
+    "ar_vae", "ar_flow_match", "ar_latent_fm",
+    "ar_real_nvp", "ar_real_nvp_lstm",
+    "ar_glow", "ar_glow_lstm",
+    "ar_mean_flow", "ar_mean_flow_lstm",
+    "ar_flow_map", "ar_flow_map_lstm",
+}
 
 
 def get_beta(epoch: int, kl_warmup: int) -> float:
@@ -528,6 +649,115 @@ def train_neural_model(
     train_elapsed = time.perf_counter() - train_start
     ms_per_epoch = train_elapsed * 1000 / max(max_epochs, 1)
     print(f"\n[{model_name}] Treino concluído: {train_elapsed:.1f}s ({ms_per_epoch:.1f} ms/época)")
+    return history, ms_per_epoch, optimizer.state_dict()
+
+
+def train_neural_model_temporal(
+    model: BaseModel,
+    train_norm: np.ndarray,
+    window_size: int,
+    max_epochs: int,
+    lr: float,
+    batch_size: int,
+    kl_warmup: int,
+    device: torch.device,
+    model_name: str,
+    print_every: int = 50,
+    optimizer_state: dict = None,
+    eval_norm: np.ndarray = None,
+    out_dir: str = None,
+    opt_config: tuple = None,
+) -> Tuple[List[dict], float, dict]:
+    """Training loop for autoregressive temporal models.
+    Uses TemporalDataset → (window, target) pairs; passes tuple to model.loss()."""
+    _use_amp, _amp_dtype = opt_config if opt_config is not None else (False, torch.float32)
+
+    dataset = TemporalDataset(train_norm, window_size)
+    loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    if optimizer_state is not None:
+        optimizer.load_state_dict(optimizer_state)
+
+    eval_dataset = TemporalDataset(eval_norm, window_size) if eval_norm is not None else None
+
+    print(f"\n[{model_name}] Temporal training: {max_epochs} epochs, lr={lr}, batch={batch_size}, window={window_size}")
+    print("-" * 60)
+    print(f"{'Epoch':>7}  {'Loss Total':>12}  {'Sub-losses':>30}  {'Beta':>6}")
+    print("-" * 60)
+
+    train_start = time.perf_counter()
+    history = []
+    best_val_loss = float('inf')
+    best_train_loss = float('inf')
+
+    for epoch in range(max_epochs):
+        model.train()
+        running = {}
+        n_samples = 0
+        beta = get_beta(epoch, kl_warmup)
+
+        for window_batch, target_batch in loader:
+            window_batch = window_batch.to(device)
+            target_batch = target_batch.to(device)
+            optimizer.zero_grad()
+            with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                loss_dict = model.loss((window_batch, target_batch), beta=beta)
+            loss_dict['total'].backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+
+            bsz = target_batch.shape[0]
+            for k, v in loss_dict.items():
+                running[k] = running.get(k, 0.0) + v.item() * bsz
+            n_samples += bsz
+
+        avg = {k: v / max(n_samples, 1) for k, v in running.items()}
+        avg['epoch'] = epoch + 1
+        avg['beta']  = round(beta, 4)
+
+        if eval_dataset is not None:
+            model.eval()
+            eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
+            val_running = {}
+            val_n = 0
+            with torch.no_grad():
+                for w_val, t_val in eval_loader:
+                    w_val, t_val = w_val.to(device), t_val.to(device)
+                    with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                        vd = model.loss((w_val, t_val), beta=beta)
+                    bsz = t_val.shape[0]
+                    for k, v in vd.items():
+                        val_running[k] = val_running.get(k, 0.0) + v.item() * bsz
+                    val_n += bsz
+            for k, v in val_running.items():
+                avg[f'val_{k}'] = v / max(val_n, 1)
+            model.train()
+            if out_dir and avg['val_total'] < best_val_loss:
+                best_val_loss = avg['val_total']
+                torch.save({'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict()},
+                           os.path.join(out_dir, 'model_best_val.pt'))
+
+        if out_dir and avg['total'] < best_train_loss:
+            best_train_loss = avg['total']
+            torch.save({'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict()},
+                       os.path.join(out_dir, 'model_best_train.pt'))
+
+        history.append(avg)
+
+        if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
+            sub_str = "  ".join(
+                f"{k}={v:.4f}" for k, v in avg.items()
+                if k not in ('total', 'epoch', 'beta') and not k.startswith('val_')
+            )
+            val_str = f"  val={avg['val_total']:.4f}" if 'val_total' in avg else ""
+            print(f"{epoch+1:7d}  {avg['total']:12.4f}  {sub_str:<30}  {beta:6.4f}{val_str}")
+
+    train_elapsed = time.perf_counter() - train_start
+    ms_per_epoch = train_elapsed * 1000 / max(max_epochs, 1)
+    print(f"\n[{model_name}] Training complete: {train_elapsed:.1f}s ({ms_per_epoch:.1f} ms/epoch)")
     return history, ms_per_epoch, optimizer.state_dict()
 
 
@@ -774,6 +1004,7 @@ def train_model(args):
     """Loop de treino principal."""
     model_name = args.model
     is_mc = model_name in _MC_MODELS
+    is_temporal = model_name in _TEMPORAL_MODELS
     defaults = MODEL_DEFAULTS[model_name]
     arch_defs = ARCH_DEFAULTS.get(model_name, {})
 
@@ -847,6 +1078,10 @@ def train_model(args):
         "hidden_dim":     hidden_dim,
         "t_embed_dim":    t_embed_dim,
         "n_sample_steps": n_sample_steps,
+        "rnn_hidden":     _arch("rnn_hidden"),
+        "rnn_type":       _arch("rnn_type"),
+        "n_steps":        _arch("n_steps"),
+        "mf_ratio":       _arch("mf_ratio"),
     }
     # Parâmetros específicos do LDM (estágio 2: DDPM)
     if model_name == "ldm":
@@ -897,6 +1132,10 @@ def train_model(args):
         ("hidden_dim",     hidden_dim),
         ("t_embed_dim",    t_embed_dim),
         ("n_sample_steps", n_sample_steps),
+        ("rnn_hidden",     _arch("rnn_hidden")),
+        ("rnn_type",       _arch("rnn_type")),
+        ("n_steps",        _arch("n_steps")),
+        ("mf_ratio",       _arch("mf_ratio")),
     ]:
         if val is not None:
             extra_model_kwargs[key] = val
@@ -1123,6 +1362,22 @@ def train_model(args):
             out_dir=out_dir,
             opt_config=_opt_config,
         )
+    elif is_temporal:
+        history, ms_per_epoch, final_opt_state = train_neural_model_temporal(
+            model=model,
+            train_norm=train_norm,
+            window_size=window_size or 30,
+            max_epochs=max_epochs,
+            lr=lr,
+            batch_size=batch_size,
+            kl_warmup=kl_warmup,
+            device=device,
+            model_name=model_name,
+            optimizer_state=optimizer_state,
+            eval_norm=eval_norm,
+            out_dir=out_dir,
+            opt_config=_opt_config,
+        )
     else:
         history, ms_per_epoch, final_opt_state = train_neural_model(
             model=model,
@@ -1256,7 +1511,15 @@ def main():
                         help="Dimensão do embedding de tempo (flow_match)")
     parser.add_argument("--n_sample_steps", type=int, default=None,
                         help="Número de passos de integração na amostragem (flow_match)")
-    
+    parser.add_argument("--rnn_hidden", type=int, default=None,
+                        help="RNN hidden size (AR models)")
+    parser.add_argument("--rnn_type", type=str, default=None, choices=["gru", "lstm"],
+                        help="RNN type (AR models)")
+    parser.add_argument("--n_steps", type=int, default=None,
+                        help="Number of Glow steps (ar_glow)")
+    parser.add_argument("--mf_ratio", type=float, default=None,
+                        help="Mean flow ratio (ar_mean_flow)")
+
     parser.add_argument("--optimize", action="store_true",
                         help="Enable Intel CPU optimizations: torch.compile, BF16 autocast, thread tuning, IPEX if available")
     parser.add_argument("--num_threads", type=int, default=None,

@@ -37,6 +37,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from data_utils import load_data, denormalize, SABESP_DATA_PATH
 from models.ar_vae import ARVAE
+from models.ar_flow_match import ARFlowMatch
+from models.ar_flow_map import ARFlowMap
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -126,7 +128,13 @@ def _monthly_mean(data: np.ndarray, months: np.ndarray) -> np.ndarray:
 # Carregamento do modelo
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_model(model_dir: str, device: torch.device, n_stations: int) -> ARVAE:
+def _cfg_or_default(cfg: dict, key: str, default):
+    """Usa default quando a chave não existe ou está explicitamente null."""
+    value = cfg.get(key)
+    return default if value is None else value
+
+
+def load_model(model_dir: str, device: torch.device, n_stations: int):
     """
     Instancia e carrega pesos de um checkpoint ar_vae.
 
@@ -145,13 +153,47 @@ def load_model(model_dir: str, device: torch.device, n_stations: int) -> ARVAE:
     with open(config_path) as f:
         cfg = json.load(f)
 
-    model = ARVAE(
-        input_size=n_stations,
-        window_size=cfg.get("window_size", 30),
-        gru_hidden=cfg.get("gru_hidden", 128),
-        latent_size=cfg.get("latent_size", 64),
-        hidden_size=cfg.get("hidden_size", 256),
-    )
+    model_name = cfg.get("model") or os.path.basename(os.path.normpath(model_dir))
+    window_size = _cfg_or_default(cfg, "window_size", 30)
+    hidden_size = _cfg_or_default(cfg, "hidden_size", 256)
+    n_layers = _cfg_or_default(cfg, "n_layers", 4)
+    t_embed_dim = _cfg_or_default(cfg, "t_embed_dim", 64)
+    n_sample_steps = _cfg_or_default(cfg, "n_sample_steps", 50)
+    gru_hidden = _cfg_or_default(cfg, "gru_hidden", 128)
+
+    if model_name == "ar_vae":
+        model = ARVAE(
+            input_size=n_stations,
+            window_size=window_size,
+            gru_hidden=gru_hidden,
+            latent_size=_cfg_or_default(cfg, "latent_size", 64),
+            hidden_size=hidden_size,
+        )
+    elif model_name == "ar_flow_match":
+        model = ARFlowMatch(
+            input_size=n_stations,
+            window_size=window_size,
+            gru_hidden=gru_hidden,
+            hidden_size=hidden_size,
+            n_layers=n_layers,
+            t_embed_dim=t_embed_dim,
+            n_sample_steps=n_sample_steps,
+        )
+    elif model_name in {"ar_flow_map", "ar_flow_map_lstm"}:
+        model = ARFlowMap(
+            input_size=n_stations,
+            window_size=window_size,
+            rnn_hidden=_cfg_or_default(cfg, "rnn_hidden", gru_hidden),
+            hidden_size=hidden_size,
+            n_layers=n_layers,
+            t_embed_dim=t_embed_dim,
+            rnn_type="lstm" if model_name.endswith("_lstm") else "gru",
+        )
+    else:
+        raise ValueError(
+            f"Modelo '{model_name}' ainda não suportado por generate_scenarios.py"
+        )
+
     ckpt = torch.load(model_path, map_location=device)
     if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
         model.load_state_dict(ckpt["model_state_dict"])

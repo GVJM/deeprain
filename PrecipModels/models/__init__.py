@@ -37,6 +37,13 @@ from models.thresholded_latent_flow_mc import ThresholdedLatentFlowMc
 from models.thresholded_vae_mc import ThresholdedVAEMc
 from models.thresholded_real_nvp_mc import ThresholdedRealNVPMc
 from models.thresholded_glow_mc import ThresholdedGlowMc
+from models.ar_vae import ARVAE
+from models.ar_flow_match import ARFlowMatch
+from models.ar_latent_fm import ARLatentFM
+from models.ar_real_nvp import ARRealNVP
+from models.ar_glow import ARGlow
+from models.ar_mean_flow import ARMeanFlow
+from models.ar_flow_map import ARFlowMap
 
 _MODEL_REGISTRY = {
     "copula": GaussianCopula,
@@ -68,6 +75,17 @@ _MODEL_REGISTRY = {
     "thresholded_vae_mc":       ThresholdedVAEMc,
     "thresholded_real_nvp_mc":  ThresholdedRealNVPMc,
     "thresholded_glow_mc":      ThresholdedGlowMc,
+    "ar_vae":            ARVAE,
+    "ar_flow_match":     ARFlowMatch,
+    "ar_latent_fm":      ARLatentFM,
+    "ar_real_nvp":       ARRealNVP,
+    "ar_real_nvp_lstm":  ARRealNVP,
+    "ar_glow":           ARGlow,
+    "ar_glow_lstm":      ARGlow,
+    "ar_mean_flow":      ARMeanFlow,
+    "ar_mean_flow_lstm": ARMeanFlow,
+    "ar_flow_map":       ARFlowMap,
+    "ar_flow_map_lstm":  ARFlowMap,
 }
 
 MODEL_NAMES = list(_MODEL_REGISTRY.keys())
