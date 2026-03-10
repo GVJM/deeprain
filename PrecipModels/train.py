@@ -39,7 +39,7 @@ from base_model import BaseModel
 from models import get_model, MODEL_NAMES
 from metrics import evaluate_model
 from models.conditioning import DEFAULT_CATEGORICALS
-
+import json
 
 def _setup_intel_opts(model, args):
     """Apply Intel CPU optimizations. Returns (model, use_amp, amp_dtype)."""
@@ -68,339 +68,8 @@ def _setup_intel_opts(model, args):
 # ──────────────────────────────────────────────────────────
 # DEFAULTS POR MODELO
 # ──────────────────────────────────────────────────────────
-
-MODEL_DEFAULTS = {
-    "copula": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 0,
-        "latent_size": 0,
-        "lr": 0.0,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "vae": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 1000,
-        "latent_size": 128,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 100,
-    },
-    "hurdle_simple": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "hurdle_vae": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 800,
-        "latent_occ": 32,
-        "latent_amt": 64,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 25,
-    },
-    "hurdle_vae_cond": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 800,
-        "latent_occ": 32,
-        "latent_amt": 64,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 200,
-    },
-    "hurdle_vae_cond_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 800,
-        "latent_occ": 32,
-        "latent_amt": 64,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 200,
-    },
-    "hurdle_vae_cond_nll": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 800,
-        "latent_occ": 32,
-        "latent_amt": 64,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 200,
-    },
-    "real_nvp": {
-        "normalization_mode": "standardize",
-        "max_epochs": 1000,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "hurdle_flow": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "flow_match": {
-        "normalization_mode": "standardize",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "flow_match_film": {
-        "normalization_mode": "standardize",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    # ── Novos modelos ──────────────────────────────────────────────────────────
-    "ldm": {
-        # Melhor configuração de VAE_Tests/best_v2_ldm
-        "normalization_mode": "scale_only",
-        "max_epochs": 1000,       # Estágio 1: VAE
-        "latent_size": 128,
-        "lr": 0.005,
-        "batch_size": 128,
-        "kl_warmup": 25,
-        # Estágio 2: DDPM (parâmetros extras usados em train_model_ldm)
-        "ldm_epochs": 1000,
-        "ldm_lr": 0.001,
-        "ldm_timesteps": 100,
-        "ldm_hidden_size": 128,
-        "ldm_num_layers": 3,
-        "ldm_time_embed_dim": 64,
-    },
-    "hurdle_temporal": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 800,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "latent_flow": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.0002,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    # ── Modelos condicionados (_mc = monthly conditioning via nn.Embedding) ──
-    "hurdle_simple_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "vae_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 1000,
-        "latent_size": 128,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 100,
-    },
-    "glow": {
-        "normalization_mode": "standardize",
-        "max_epochs": 1000,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "real_nvp_mc": {
-        "normalization_mode": "standardize",
-        "max_epochs": 1000,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "glow_mc": {
-        "normalization_mode": "standardize",
-        "max_epochs": 1000,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "flow_match_mc": {
-        "normalization_mode": "standardize",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "flow_match_film_mc": {
-        "normalization_mode": "standardize",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "latent_fm_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 1000,      # stage VAE
-        "latent_size": 64,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 200,
-        "flow_epochs": 1000,
-        "flow_lr": 0.0005,
-    },
-    "hurdle_latent_fm_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 1000,   # stage 1 (VAE)
-        "latent_occ": 32, "latent_amt": 64, "latent_size": 0,
-        "lr": 0.001, "batch_size": 128, "kl_warmup": 200,
-        # stage 2 extras:
-        "flow_epochs": 1000, "flow_lr": 0.0002,
-    },
-    "thresholded_latent_fm_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 1000,       # Stage 1: Epochs for training the Continuous VAE
-        "latent_size": 128,       # Dimension of the latent space (z)
-        "lr": 0.001,              # Stage 1: Learning rate for VAE
-        "batch_size": 128,
-        "kl_warmup": 200,         # Important to prevent posterior collapse in the VAE
-
-        # --- Stage 2 (Flow Matching) specific overrides ---
-        "flow_epochs": 1000,      # Stage 2: Epochs for training the Latent FlowNet
-        "flow_lr": 0.0002,        # Stage 2: Lower LR for stable vector field learning
-    },
-    "thresholded_vae_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 500,
-        "latent_size": 128,
-        "lr": 0.001,
-        "batch_size": 128,
-        "kl_warmup": 100,
-    },
-    "thresholded_real_nvp_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    "thresholded_glow_mc": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 500,
-        "latent_size": 0,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 0,
-    },
-    # ── AR (Autoregressive) Models ──────────────────────────────────────────
-    "ar_vae": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 50,
-        "latent_size": 64,
-    },
-    "ar_flow_match": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_latent_fm": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 50,
-        "latent_size": 32,
-    },
-    "ar_real_nvp": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_real_nvp_lstm": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_glow": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_glow_lstm": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0001,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_mean_flow": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_mean_flow_lstm": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_flow_map": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    "ar_flow_map_lstm": {
-        "normalization_mode": "scale_only",
-        "max_epochs": 300,
-        "lr": 0.0003,
-        "batch_size": 128,
-        "kl_warmup": 0,
-        "latent_size": 0,
-    },
-    }
-
+with open("MODEL_DEFAULTS.json", "r+") as f:
+    MODEL_DEFAULTS = json.load(f)
 
 # Defaults de arquitetura por modelo (usados quando o CLI não sobrescreve)
 ARCH_DEFAULTS = {
@@ -592,64 +261,69 @@ def train_neural_model(
     best_val_loss = float('inf')
     best_train_loss = float('inf')
 
-    for epoch in range(max_epochs):
-        model.train()
-        running = {}
-        n_samples = 0
-
-        beta = get_beta(epoch, kl_warmup)
-
-        for x_batch, _ in loader:
-            optimizer.zero_grad()
-            with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                loss_dict = model.loss(x_batch, beta=beta)
-            loss_dict['total'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-
-            bsz = x_batch.shape[0]
-            for k, v in loss_dict.items():
-                running[k] = running.get(k, 0.0) + v.item() * bsz
-            n_samples += bsz
-
-        avg = {k: v / max(n_samples, 1) for k, v in running.items()}
-        avg['epoch'] = epoch + 1
-        avg['beta'] = round(beta, 4)
-
-        if eval_tensor is not None:
-            model.eval()
-            with torch.no_grad():
-                with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                    vd = model.loss(eval_tensor, beta=beta)
-            for k, v in vd.items():
-                avg[f'val_{k}'] = v.item()
+    interrupted = False
+    try:
+        for epoch in range(max_epochs):
             model.train()
-            if out_dir and avg['val_total'] < best_val_loss:
-                best_val_loss = avg['val_total']
+            running = {}
+            n_samples = 0
+
+            beta = get_beta(epoch, kl_warmup)
+
+            for x_batch, _ in loader:
+                optimizer.zero_grad()
+                with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                    loss_dict = model.loss(x_batch, beta=beta)
+                loss_dict['total'].backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+
+                bsz = x_batch.shape[0]
+                for k, v in loss_dict.items():
+                    running[k] = running.get(k, 0.0) + v.item() * bsz
+                n_samples += bsz
+
+            avg = {k: v / max(n_samples, 1) for k, v in running.items()}
+            avg['epoch'] = epoch + 1
+            avg['beta'] = round(beta, 4)
+
+            if eval_tensor is not None:
+                model.eval()
+                with torch.no_grad():
+                    with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                        vd = model.loss(eval_tensor, beta=beta)
+                for k, v in vd.items():
+                    avg[f'val_{k}'] = v.item()
+                model.train()
+                if out_dir and avg['val_total'] < best_val_loss:
+                    best_val_loss = avg['val_total']
+                    torch.save({'model_state_dict': model.state_dict(),
+                                'optimizer_state_dict': optimizer.state_dict()},
+                               os.path.join(out_dir, 'model_best_val.pt'))
+
+            if out_dir and avg['total'] < best_train_loss:
+                best_train_loss = avg['total']
                 torch.save({'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict()},
-                           os.path.join(out_dir, 'model_best_val.pt'))
+                           os.path.join(out_dir, 'model_best_train.pt'))
 
-        if out_dir and avg['total'] < best_train_loss:
-            best_train_loss = avg['total']
-            torch.save({'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()},
-                       os.path.join(out_dir, 'model_best_train.pt'))
+            history.append(avg)
 
-        history.append(avg)
-
-        if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
-            sub_str = "  ".join(
-                f"{k}={v:.4f}" for k, v in avg.items()
-                if k not in ('total', 'epoch', 'beta') and not k.startswith('val_')
-            )
-            val_str = f"  val={avg['val_total']:.4f}" if 'val_total' in avg else ""
-            print(f"{epoch+1:7d}  {avg['total']:12.4f}  {sub_str:<30}  {beta:6.4f}{val_str}")
+            if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
+                sub_str = "  ".join(
+                    f"{k}={v:.4f}" for k, v in avg.items()
+                    if k not in ('total', 'epoch', 'beta') and not k.startswith('val_')
+                )
+                val_str = f"  val={avg['val_total']:.4f}" if 'val_total' in avg else ""
+                print(f"{epoch+1:7d}  {avg['total']:12.4f}  {sub_str:<30}  {beta:6.4f}{val_str}")
+    except KeyboardInterrupt:
+        interrupted = True
+        print(f"\n[{model_name}] Training interrupted at epoch {epoch+1}/{max_epochs}. Saving best checkpoint...")
 
     train_elapsed = time.perf_counter() - train_start
-    ms_per_epoch = train_elapsed * 1000 / max(max_epochs, 1)
+    ms_per_epoch = train_elapsed * 1000 / max(len(history), 1)
     print(f"\n[{model_name}] Treino concluído: {train_elapsed:.1f}s ({ms_per_epoch:.1f} ms/época)")
-    return history, ms_per_epoch, optimizer.state_dict()
+    return history, ms_per_epoch, optimizer.state_dict(), interrupted
 
 
 def train_neural_model_temporal(
@@ -691,74 +365,79 @@ def train_neural_model_temporal(
     best_val_loss = float('inf')
     best_train_loss = float('inf')
 
-    for epoch in range(max_epochs):
-        model.train()
-        running = {}
-        n_samples = 0
-        beta = get_beta(epoch, kl_warmup)
-
-        for window_batch, target_batch in loader:
-            window_batch = window_batch.to(device)
-            target_batch = target_batch.to(device)
-            optimizer.zero_grad()
-            with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                loss_dict = model.loss((window_batch, target_batch), beta=beta)
-            loss_dict['total'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-
-            bsz = target_batch.shape[0]
-            for k, v in loss_dict.items():
-                running[k] = running.get(k, 0.0) + v.item() * bsz
-            n_samples += bsz
-
-        avg = {k: v / max(n_samples, 1) for k, v in running.items()}
-        avg['epoch'] = epoch + 1
-        avg['beta']  = round(beta, 4)
-
-        if eval_dataset is not None:
-            model.eval()
-            eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
-            val_running = {}
-            val_n = 0
-            with torch.no_grad():
-                for w_val, t_val in eval_loader:
-                    w_val, t_val = w_val.to(device), t_val.to(device)
-                    with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                        vd = model.loss((w_val, t_val), beta=beta)
-                    bsz = t_val.shape[0]
-                    for k, v in vd.items():
-                        val_running[k] = val_running.get(k, 0.0) + v.item() * bsz
-                    val_n += bsz
-            for k, v in val_running.items():
-                avg[f'val_{k}'] = v / max(val_n, 1)
+    interrupted = False
+    try:
+        for epoch in range(max_epochs):
             model.train()
-            if out_dir and avg['val_total'] < best_val_loss:
-                best_val_loss = avg['val_total']
+            running = {}
+            n_samples = 0
+            beta = get_beta(epoch, kl_warmup)
+
+            for window_batch, target_batch in loader:
+                window_batch = window_batch.to(device)
+                target_batch = target_batch.to(device)
+                optimizer.zero_grad()
+                with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                    loss_dict = model.loss((window_batch, target_batch), beta=beta)
+                loss_dict['total'].backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+
+                bsz = target_batch.shape[0]
+                for k, v in loss_dict.items():
+                    running[k] = running.get(k, 0.0) + v.item() * bsz
+                n_samples += bsz
+
+            avg = {k: v / max(n_samples, 1) for k, v in running.items()}
+            avg['epoch'] = epoch + 1
+            avg['beta']  = round(beta, 4)
+
+            if eval_dataset is not None:
+                model.eval()
+                eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
+                val_running = {}
+                val_n = 0
+                with torch.no_grad():
+                    for w_val, t_val in eval_loader:
+                        w_val, t_val = w_val.to(device), t_val.to(device)
+                        with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                            vd = model.loss((w_val, t_val), beta=beta)
+                        bsz = t_val.shape[0]
+                        for k, v in vd.items():
+                            val_running[k] = val_running.get(k, 0.0) + v.item() * bsz
+                        val_n += bsz
+                for k, v in val_running.items():
+                    avg[f'val_{k}'] = v / max(val_n, 1)
+                model.train()
+                if out_dir and avg['val_total'] < best_val_loss:
+                    best_val_loss = avg['val_total']
+                    torch.save({'model_state_dict': model.state_dict(),
+                                'optimizer_state_dict': optimizer.state_dict()},
+                               os.path.join(out_dir, 'model_best_val.pt'))
+
+            if out_dir and avg['total'] < best_train_loss:
+                best_train_loss = avg['total']
                 torch.save({'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict()},
-                           os.path.join(out_dir, 'model_best_val.pt'))
+                           os.path.join(out_dir, 'model_best_train.pt'))
 
-        if out_dir and avg['total'] < best_train_loss:
-            best_train_loss = avg['total']
-            torch.save({'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()},
-                       os.path.join(out_dir, 'model_best_train.pt'))
+            history.append(avg)
 
-        history.append(avg)
-
-        if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
-            sub_str = "  ".join(
-                f"{k}={v:.4f}" for k, v in avg.items()
-                if k not in ('total', 'epoch', 'beta') and not k.startswith('val_')
-            )
-            val_str = f"  val={avg['val_total']:.4f}" if 'val_total' in avg else ""
-            print(f"{epoch+1:7d}  {avg['total']:12.4f}  {sub_str:<30}  {beta:6.4f}{val_str}")
+            if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
+                sub_str = "  ".join(
+                    f"{k}={v:.4f}" for k, v in avg.items()
+                    if k not in ('total', 'epoch', 'beta') and not k.startswith('val_')
+                )
+                val_str = f"  val={avg['val_total']:.4f}" if 'val_total' in avg else ""
+                print(f"{epoch+1:7d}  {avg['total']:12.4f}  {sub_str:<30}  {beta:6.4f}{val_str}")
+    except KeyboardInterrupt:
+        interrupted = True
+        print(f"\n[{model_name}] Training interrupted at epoch {epoch+1}/{max_epochs}. Saving best checkpoint...")
 
     train_elapsed = time.perf_counter() - train_start
-    ms_per_epoch = train_elapsed * 1000 / max(max_epochs, 1)
+    ms_per_epoch = train_elapsed * 1000 / max(len(history), 1)
     print(f"\n[{model_name}] Training complete: {train_elapsed:.1f}s ({ms_per_epoch:.1f} ms/epoch)")
-    return history, ms_per_epoch, optimizer.state_dict()
+    return history, ms_per_epoch, optimizer.state_dict(), interrupted
 
 
 class _CondDataset(Dataset):
@@ -844,74 +523,79 @@ def train_neural_model_mc(
     best_val_loss = float('inf')
     best_train_loss = float('inf')
 
-    for epoch in range(max_epochs):
-        model.train()
-        running = {}
-        n_samples = 0
-
-        beta = get_beta(epoch, kl_warmup)
-
-        for x_batch, cond_batch in loader:
-            optimizer.zero_grad()
-            with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                loss_dict = model.loss(x_batch, beta=beta, cond=cond_batch)
-            loss_dict['total'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-
-            bsz = x_batch.shape[0]
-            for k, v in loss_dict.items():
-                running[k] = running.get(k, 0.0) + v.item() * bsz
-            n_samples += bsz
-
-        avg = {k: v / max(n_samples, 1) for k, v in running.items()}
-        avg['epoch'] = epoch + 1
-        avg['beta'] = round(beta, 4)
-
-        if eval_tensor is not None:
-            model.eval()
-            val_running = {}
-            val_n_samples = 0
-            with torch.no_grad():
-                for start in range(0, eval_tensor.shape[0], batch_size):
-                    end = min(start + batch_size, eval_tensor.shape[0])
-                    x_val = eval_tensor[start:end]
-                    cond_val = {k: v[start:end] for k, v in eval_cond_tensors.items()} if eval_cond_tensors is not None else None
-                    with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                        vd = model.loss(x_val, beta=beta, cond=cond_val)
-                    bsz = x_val.shape[0]
-                    for k, v in vd.items():
-                        val_running[k] = val_running.get(k, 0.0) + v.item() * bsz
-                    val_n_samples += bsz
-            for k, v in val_running.items():
-                avg[f'val_{k}'] = v / max(val_n_samples, 1)
+    interrupted = False
+    try:
+        for epoch in range(max_epochs):
             model.train()
-            if out_dir and avg['val_total'] < best_val_loss:
-                best_val_loss = avg['val_total']
+            running = {}
+            n_samples = 0
+
+            beta = get_beta(epoch, kl_warmup)
+
+            for x_batch, cond_batch in loader:
+                optimizer.zero_grad()
+                with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                    loss_dict = model.loss(x_batch, beta=beta, cond=cond_batch)
+                loss_dict['total'].backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+
+                bsz = x_batch.shape[0]
+                for k, v in loss_dict.items():
+                    running[k] = running.get(k, 0.0) + v.item() * bsz
+                n_samples += bsz
+
+            avg = {k: v / max(n_samples, 1) for k, v in running.items()}
+            avg['epoch'] = epoch + 1
+            avg['beta'] = round(beta, 4)
+
+            if eval_tensor is not None:
+                model.eval()
+                val_running = {}
+                val_n_samples = 0
+                with torch.no_grad():
+                    for start in range(0, eval_tensor.shape[0], batch_size):
+                        end = min(start + batch_size, eval_tensor.shape[0])
+                        x_val = eval_tensor[start:end]
+                        cond_val = {k: v[start:end] for k, v in eval_cond_tensors.items()} if eval_cond_tensors is not None else None
+                        with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
+                            vd = model.loss(x_val, beta=beta, cond=cond_val)
+                        bsz = x_val.shape[0]
+                        for k, v in vd.items():
+                            val_running[k] = val_running.get(k, 0.0) + v.item() * bsz
+                        val_n_samples += bsz
+                for k, v in val_running.items():
+                    avg[f'val_{k}'] = v / max(val_n_samples, 1)
+                model.train()
+                if out_dir and avg['val_total'] < best_val_loss:
+                    best_val_loss = avg['val_total']
+                    torch.save({'model_state_dict': model.state_dict(),
+                                'optimizer_state_dict': optimizer.state_dict()},
+                               os.path.join(out_dir, 'model_best_val.pt'))
+
+            if out_dir and avg['total'] < best_train_loss:
+                best_train_loss = avg['total']
                 torch.save({'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict()},
-                           os.path.join(out_dir, 'model_best_val.pt'))
+                           os.path.join(out_dir, 'model_best_train.pt'))
 
-        if out_dir and avg['total'] < best_train_loss:
-            best_train_loss = avg['total']
-            torch.save({'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()},
-                       os.path.join(out_dir, 'model_best_train.pt'))
+            history.append(avg)
 
-        history.append(avg)
-
-        if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
-            sub_str = "  ".join(
-                f"{k}={v:.4f}" for k, v in avg.items()
-                if k not in ('total', 'epoch', 'beta') and not k.startswith('val_')
-            )
-            val_str = f"  val={avg['val_total']:.4f}" if 'val_total' in avg else ""
-            print(f"{epoch+1:7d}  {avg['total']:12.4f}  {sub_str:<30}  {beta:6.4f}{val_str}")
+            if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
+                sub_str = "  ".join(
+                    f"{k}={v:.4f}" for k, v in avg.items()
+                    if k not in ('total', 'epoch', 'beta') and not k.startswith('val_')
+                )
+                val_str = f"  val={avg['val_total']:.4f}" if 'val_total' in avg else ""
+                print(f"{epoch+1:7d}  {avg['total']:12.4f}  {sub_str:<30}  {beta:6.4f}{val_str}")
+    except KeyboardInterrupt:
+        interrupted = True
+        print(f"\n[{model_name}] Training interrupted at epoch {epoch+1}/{max_epochs}. Saving best checkpoint...")
 
     train_elapsed = time.perf_counter() - train_start
-    ms_per_epoch = train_elapsed * 1000 / max(max_epochs, 1)
+    ms_per_epoch = train_elapsed * 1000 / max(len(history), 1)
     print(f"\n[{model_name}] Treino concluído: {train_elapsed:.1f}s ({ms_per_epoch:.1f} ms/época)")
-    return history, ms_per_epoch, optimizer.state_dict()
+    return history, ms_per_epoch, optimizer.state_dict(), interrupted
 
 
 def _plot_training_history(history: list, out_dir: str, model_name: str, is_log_axis=False):
@@ -1246,7 +930,7 @@ def train_model(args):
     if model_name == "ldm":
         # ── LDM: Estágio 1 (VAE) ──────────────────────────────────────────────
         model.set_stage("vae")
-        history, ms_per_epoch, opt_state= train_neural_model(
+        history, ms_per_epoch, opt_state, intr1 = train_neural_model(
             model=model,
             train_norm=train_norm,
             max_epochs=max_epochs,
@@ -1265,7 +949,7 @@ def train_model(args):
         ldm_epochs = defaults.get("ldm_epochs", 300)
         ldm_lr = defaults.get("ldm_lr", 0.001)
         model.set_stage("ldm")
-        history2, ms2, final_opt_state = train_neural_model(
+        history2, ms2, final_opt_state, intr2 = train_neural_model(
             model=model,
             train_norm=train_norm,
             max_epochs=ldm_epochs,
@@ -1280,6 +964,7 @@ def train_model(args):
             out_dir=out_dir,
             opt_config=_opt_config,
         )
+        interrupted = intr1 or intr2
         for entry in history:
             entry['stage'] = 'vae'
         for entry in history2:
@@ -1298,7 +983,7 @@ def train_model(args):
         flow_lr     = defaults.get("flow_lr", 0.0002)
 
         model.set_stage("vae")
-        history, ms_per_epoch, opt_state = train_neural_model_mc(
+        history, ms_per_epoch, opt_state, intr1 = train_neural_model_mc(
             model=model,
             train_norm=train_norm,
             train_cond=train_cond,
@@ -1317,7 +1002,7 @@ def train_model(args):
 
         # ── Estágio 2: Flow Matching ──────────────────────────────────────────
         model.set_stage("flow")
-        history2, ms2, final_opt_state = train_neural_model_mc(
+        history2, ms2, final_opt_state, intr2 = train_neural_model_mc(
             model=model,
             train_norm=train_norm,
             train_cond=train_cond,
@@ -1335,6 +1020,7 @@ def train_model(args):
         )
 
         # ── Combina histórico (igual ao LDM) ──────────────────────────────────
+        interrupted = intr1 or intr2
         for entry in history:
             entry['stage'] = 'vae'
         for entry in history2:
@@ -1346,7 +1032,7 @@ def train_model(args):
         ms_per_epoch = (ms_per_epoch * max_epochs + ms2 * flow_epochs) / max(total_epochs, 1)
 
     elif is_mc:
-        history, ms_per_epoch, final_opt_state = train_neural_model_mc(
+        history, ms_per_epoch, final_opt_state, interrupted = train_neural_model_mc(
             model=model,
             train_norm=train_norm,
             train_cond=train_cond,
@@ -1363,7 +1049,7 @@ def train_model(args):
             opt_config=_opt_config,
         )
     elif is_temporal:
-        history, ms_per_epoch, final_opt_state = train_neural_model_temporal(
+        history, ms_per_epoch, final_opt_state, interrupted = train_neural_model_temporal(
             model=model,
             train_norm=train_norm,
             window_size=window_size or 30,
@@ -1379,7 +1065,7 @@ def train_model(args):
             opt_config=_opt_config,
         )
     else:
-        history, ms_per_epoch, final_opt_state = train_neural_model(
+        history, ms_per_epoch, final_opt_state, interrupted = train_neural_model(
             model=model,
             train_norm=train_norm,
             max_epochs=max_epochs,
@@ -1393,6 +1079,20 @@ def train_model(args):
             out_dir=out_dir,
             opt_config=_opt_config,
         )
+
+    # ── Se interrompido, carrega melhor checkpoint salvo em disco ──────────
+    if interrupted:
+        best_val_path   = os.path.join(out_dir, "model_best_val.pt")
+        best_train_path = os.path.join(out_dir, "model_best_train.pt")
+        ckpt_path = best_val_path if os.path.exists(best_val_path) else (
+                    best_train_path if os.path.exists(best_train_path) else None)
+        if ckpt_path:
+            ckpt = torch.load(ckpt_path, map_location=device)
+            model.load_state_dict(ckpt["model_state_dict"])
+            final_opt_state = ckpt.get("optimizer_state_dict", final_opt_state)
+            print(f"[{model_name}] Loaded checkpoint: {os.path.basename(ckpt_path)}")
+        else:
+            print(f"[{model_name}] No checkpoint found — evaluating in-memory state.")
 
     # ── Salva modelo e otimizador ──
     model_path = os.path.join(out_dir, "model.pt")
