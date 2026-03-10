@@ -23,12 +23,12 @@ OUTPUTS_DIR = Path(__file__).parent / "outputs"
 # All fields train_model(args) reads; None → falls back to MODEL_DEFAULTS / ARCH_DEFAULTS
 _NS_DEFAULTS = dict(
     # Training scalars (None → MODEL_DEFAULTS)
-    max_epochs=None, lr=None, batch_size=None, kl_warmup=None,
+    max_epochs=1000, lr=None, batch_size=None, kl_warmup=None,
     latent_size=None, latent_occ=None, latent_amt=None,
     normalization_mode=None,
     # Infrastructure (match argparse defaults)
     device="auto", output_dir=str(OUTPUTS_DIR),
-    n_samples=5000, holdout_ratio=0.2,
+    n_samples=5000, holdout_ratio=0.0,
     resume=False, optimize=False, num_threads=None,
     # Architecture (None → ARCH_DEFAULTS)
     hidden_size=None, n_layers=None, n_coupling=None,
