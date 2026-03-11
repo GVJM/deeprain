@@ -28,7 +28,7 @@ _NS_DEFAULTS = dict(
     normalization_mode=None,
     # Infrastructure (match argparse defaults)
     device="auto", output_dir=str(OUTPUTS_DIR),
-    n_samples=5000, holdout_ratio=0.0,
+    n_samples=1000, holdout_ratio=0.0,
     resume=False, optimize=False, num_threads=None,
     # Architecture (None → ARCH_DEFAULTS)
     hidden_size=None, n_layers=None, n_coupling=None,

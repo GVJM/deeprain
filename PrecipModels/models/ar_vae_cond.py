@@ -32,7 +32,6 @@ Uso:
     scenarios = model.sample_rollout(seed_window, n_days=365, n_scenarios=50)
 """
 
-import math
 import os
 import sys
 
@@ -43,7 +42,6 @@ from torch import Tensor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from base_model import BaseModel
-from models.conditioning import ConditioningBlock, DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS
 
 
 class ARVAE(BaseModel):
@@ -85,8 +83,6 @@ class ARVAE(BaseModel):
         self.window_size = window_size
         self.gru_hidden  = gru_hidden
         self.latent_size = latent_size
-        self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
-        self.cond_dim    = self.cond_block.total_dim
 
         # ── GRU: comprime (W, S) → h (gru_hidden,) ──────────────────────────
         # batch_first=True: entrada (B, W, S), saída (B, W, gru_hidden)
@@ -99,7 +95,7 @@ class ARVAE(BaseModel):
         )
 
         # ── Encoder: [y_t (S), h (gru_hidden)] → (mu, logvar) ───────────────
-        enc_in = input_size + gru_hidden + self.cond_dim
+        enc_in = input_size + gru_hidden
         self.encoder = nn.Sequential(
             nn.Linear(enc_in, hidden_size),
             nn.LeakyReLU(0.1),
@@ -110,7 +106,7 @@ class ARVAE(BaseModel):
         self.fc_logvar = nn.Linear(hidden_size // 2, latent_size)
 
         # ── Decoder: [z (latent_size), h (gru_hidden)] → y_hat (S,) ─────────
-        dec_in = latent_size + gru_hidden + self.cond_dim
+        dec_in = latent_size + gru_hidden
         self.decoder = nn.Sequential(
             nn.Linear(dec_in, hidden_size // 2),
             nn.LeakyReLU(0.1),
@@ -130,36 +126,21 @@ class ARVAE(BaseModel):
         _, h_n = self.gru(window)   # h_n: (num_layers, B, gru_hidden)
         return h_n[-1]              # última camada: (B, gru_hidden)
 
-    def _cond_embed(self, cond: dict | None, batch_size: int, device: torch.device) -> Tensor:
-        if cond is None:
-            return torch.zeros(batch_size, self.cond_dim, device=device)
-        return self.cond_block(cond)
-
-    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
-        """Build conditioning dict for a given day-of-year (1–366)."""
-        angle = 2.0 * math.pi * doy / 365.25
-        month_idx = int((doy - 1) * 12 / 365) % 12
-        return {
-            'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
-            'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
-            'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
-        }
-
-    def encode(self, x: Tensor, h: Tensor, cond_emb: Tensor):
+    def encode(self, x: Tensor, h: Tensor):
         """
         x: (B, S), h: (B, gru_hidden)
         → mu, logvar: cada (B, latent_size)
         """
-        inp  = torch.cat([x, h, cond_emb], dim=-1)
+        inp  = torch.cat([x, h], dim=-1)
         feat = self.encoder(inp)
         return self.fc_mu(feat), torch.clamp(self.fc_logvar(feat), -10, 10)
 
-    def decode(self, z: Tensor, h: Tensor, cond_emb: Tensor) -> Tensor:
+    def decode(self, z: Tensor, h: Tensor) -> Tensor:
         """
         z: (B, latent_size), h: (B, gru_hidden)
         → x_hat: (B, S)  — valores não-negativos via ReLU final
         """
-        inp = torch.cat([z, h, cond_emb], dim=-1)
+        inp = torch.cat([z, h], dim=-1)
         return self.decoder(inp)
 
     def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
@@ -182,16 +163,11 @@ class ARVAE(BaseModel):
         Returns:
             {'total': ..., 'mse': ..., 'kl': ...}
         """
-        if len(x) == 3:
-            window, target, cond = x
-        else:
-            window, target = x
-            cond = None
+        window, target = x
         h              = self._encode_window(window)    # (B, gru_hidden)
-        cond_emb       = self._cond_embed(cond, target.shape[0], target.device)
-        mu, logvar     = self.encode(target, h, cond_emb)
+        mu, logvar     = self.encode(target, h)
         z              = self.reparameterize(mu, logvar)
-        x_hat          = self.decode(z, h, cond_emb)
+        x_hat          = self.decode(z, h)
 
         mse   = F.mse_loss(x_hat, target)
         kl    = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
@@ -199,7 +175,7 @@ class ARVAE(BaseModel):
         return {"total": total, "mse": mse, "kl": kl}
 
     @torch.no_grad()
-    def sample(self, n: int, steps=None, method=None, start_doy: int = 1) -> Tensor:
+    def sample(self, n: int, steps=None, method=None) -> Tensor:
         """
         Gera n amostras via rollout autorregressivo a partir de janela zero.
 
@@ -207,8 +183,7 @@ class ARVAE(BaseModel):
         Inclui warmup de 30 passos para sair do estado zero antes de coletar.
 
         Args:
-            n:         número de amostras a retornar
-            start_doy: dia do ano (1–366) do primeiro passo de coleta
+            n: número de amostras a retornar
 
         Returns:
             Tensor (n, n_stations) — espaço normalizado
@@ -217,23 +192,17 @@ class ARVAE(BaseModel):
         window = torch.zeros(1, self.window_size, self.n_stations, device=device)
 
         # Warmup: deixa o estado interno do GRU convergir
-        for i in range(self.window_size):
-            doy = (start_doy - self.window_size + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+        for _ in range(self.window_size):
             h = self._encode_window(window)
             z = torch.randn(1, self.latent_size, device=device)
-            cond_emb = self._cond_embed(cond, 1, device)
-            y = self.decode(z, h, cond_emb)
+            y = self.decode(z, h)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
 
         samples = []
-        for i in range(n):
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+        for _ in range(n):
             h = self._encode_window(window)
             z = torch.randn(1, self.latent_size, device=device)
-            cond_emb = self._cond_embed(cond, 1, device)
-            y = self.decode(z, h, cond_emb)
+            y = self.decode(z, h)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             samples.append(y)
 
@@ -245,7 +214,6 @@ class ARVAE(BaseModel):
         seed_window: Tensor,
         n_days: int,
         n_scenarios: int = 10,
-        start_doy: int = 1,
     ) -> Tensor:
         """
         Gera múltiplos cenários via rollout autorregressivo.
@@ -257,7 +225,6 @@ class ARVAE(BaseModel):
             seed_window: (W, S) tensor — janela histórica inicial (normalizada)
             n_days:      número de dias a gerar
             n_scenarios: número de cenários paralelos
-            start_doy:   dia do ano (1–366) do primeiro dia gerado
 
         Returns:
             Tensor (n_scenarios, n_days, n_stations)
@@ -274,13 +241,10 @@ class ARVAE(BaseModel):
         )
 
         days = []
-        for i in range(n_days):
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, n_scenarios, device)
+        for _ in range(n_days):
             h = self._encode_window(window)                         # (n_sc, gru_hidden)
             z = torch.randn(n_scenarios, self.latent_size, device=device)
-            cond_emb = self._cond_embed(cond, n_scenarios, device)
-            y = self.decode(z, h, cond_emb)                         # (n_sc, n_stations)
+            y = self.decode(z, h)                                   # (n_sc, n_stations)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             days.append(y)
 

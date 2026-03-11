@@ -44,6 +44,7 @@ from torch import Tensor
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from base_model import BaseModel
 from models.flow_match import SinusoidalEmbedding
+from models.conditioning import ConditioningBlock, DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS
 
 
 class _CondVelocityMLP(nn.Module):
@@ -54,10 +55,10 @@ class _CondVelocityMLP(nn.Module):
     Output: velocidade estimada (S,)
     """
 
-    def __init__(self, data_dim: int, t_embed_dim: int, gru_hidden: int,
+    def __init__(self, data_dim: int, t_embed_dim: int, gru_hidden: int, cond_dim: int,
                  hidden: int = 256, n_layers: int = 4):
         super().__init__()
-        in_dim = data_dim + t_embed_dim + gru_hidden
+        in_dim = data_dim + t_embed_dim + gru_hidden + cond_dim
         layers = [nn.Linear(in_dim, hidden), nn.SiLU()]
         for _ in range(n_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
@@ -118,6 +119,8 @@ class ARFlowMatch(BaseModel):
         self.window_size    = window_size
         self.gru_hidden     = gru_hidden
         self.n_sample_steps = n_sample_steps
+        self.cond_block     = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
+        self.cond_dim       = self.cond_block.total_dim
 
         # ── GRU: comprime (W, S) → h (gru_hidden,) ──────────────────────────
         self.gru = nn.GRU(
@@ -134,6 +137,7 @@ class ARFlowMatch(BaseModel):
             data_dim=input_size,
             t_embed_dim=t_embed_dim,
             gru_hidden=gru_hidden,
+            cond_dim=self.cond_dim,
             hidden=hidden_size,
             n_layers=n_layers,
         )
@@ -148,7 +152,22 @@ class ARFlowMatch(BaseModel):
         _, h_n = self.gru(window)   # h_n: (num_layers, B, gru_hidden)
         return h_n[-1]              # (B, gru_hidden)
 
-    def _flow_sample(self, h: Tensor, n: int) -> Tensor:
+    def _cond_embed(self, cond: dict | None, batch_size: int, device: torch.device) -> Tensor:
+        if cond is None:
+            return torch.zeros(batch_size, self.cond_dim, device=device)
+        return self.cond_block(cond)
+
+    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
+        """Build conditioning dict for a given day-of-year (1–366)."""
+        angle = 2.0 * math.pi * doy / 365.25
+        month_idx = int((doy - 1) * 12 / 365) % 12
+        return {
+            'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
+            'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
+            'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
+        }
+
+    def _flow_sample(self, h: Tensor, cond_emb: Tensor, n: int) -> Tensor:
         """
         Integração Euler de t=0 a t=1 condicionada em h.
 
@@ -163,7 +182,7 @@ class ARFlowMatch(BaseModel):
             t_val = i * dt
             t_tensor = torch.full((n,), t_val, device=device)
             t_emb = self.t_embed(t_tensor)
-            v = self.velocity(z, t_emb, h)
+            v = self.velocity(z, t_emb, torch.cat([h, cond_emb], dim=-1))
             z = z + v * dt
 
         return z.clamp(min=0.0)  # precipitação não-negativa
@@ -183,10 +202,16 @@ class ARFlowMatch(BaseModel):
         Returns:
             {'total': ..., 'fm_loss': ...}
         """
-        window, target = x
+        if len(x) == 3:
+            window, target, cond = x
+        else:
+            window, target = x
+            cond = None
         B = target.shape[0]
 
         h   = self._encode_window(window)   # (B, gru_hidden)
+        cond_emb = self._cond_embed(cond, B, target.device)
+        h_cond = torch.cat([h, cond_emb], dim=-1)
         z_0 = torch.randn_like(target)
         z_1 = target
 
@@ -198,13 +223,14 @@ class ARFlowMatch(BaseModel):
         target_v = z_1 - z_0   # velocidade constante (alvo)
 
         t_emb  = self.t_embed(t)
-        v_pred = self.velocity(z_t, t_emb, h)
+        v_pred = self.velocity(z_t, t_emb, h_cond)
 
         fm_loss = F.mse_loss(v_pred, target_v)
         return {'total': fm_loss, 'fm_loss': fm_loss}
 
     @torch.no_grad()
-    def sample(self, n: int, steps: int | None = None, method: str | None = None) -> Tensor:
+    def sample(self, n: int, steps: int | None = None, method: str | None = None,
+               start_doy: int = 1) -> Tensor:
         """
         Gera n amostras via rollout autorregressivo a partir de janela zero.
 
@@ -217,15 +243,21 @@ class ARFlowMatch(BaseModel):
         window = torch.zeros(1, self.window_size, self.n_stations, device=device)
 
         # Warmup: deixa GRU convergir
-        for _ in range(self.window_size):
+        for i in range(self.window_size):
+            doy = (start_doy - self.window_size + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, 1)
+            cond_emb = self._cond_embed(cond, 1, device)
+            y = self._flow_sample(h, cond_emb, 1)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
 
         samples = []
-        for _ in range(n):
+        for i in range(n):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, 1)
+            cond_emb = self._cond_embed(cond, 1, device)
+            y = self._flow_sample(h, cond_emb, 1)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             samples.append(y)
 
@@ -237,6 +269,7 @@ class ARFlowMatch(BaseModel):
         seed_window: Tensor,
         n_days: int,
         n_scenarios: int = 10,
+        start_doy: int = 1,
     ) -> Tensor:
         """
         Gera múltiplos cenários via rollout autorregressivo.
@@ -245,6 +278,7 @@ class ARFlowMatch(BaseModel):
             seed_window: (W, S) — janela histórica inicial (normalizada)
             n_days:      número de dias a gerar
             n_scenarios: número de cenários paralelos
+            start_doy:   dia do ano (1–366) do primeiro dia gerado
 
         Returns:
             Tensor (n_scenarios, n_days, n_stations)
@@ -260,9 +294,12 @@ class ARFlowMatch(BaseModel):
         )   # (n_scenarios, W, n_stations)
 
         days = []
-        for _ in range(n_days):
+        for i in range(n_days):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, n_scenarios, device)
             h = self._encode_window(window)                   # (n_sc, gru_hidden)
-            y = self._flow_sample(h, n_scenarios)             # (n_sc, n_stations)
+            cond_emb = self._cond_embed(cond, n_scenarios, device)
+            y = self._flow_sample(h, cond_emb, n_scenarios)   # (n_sc, n_stations)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             days.append(y)
 

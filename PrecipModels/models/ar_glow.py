@@ -11,6 +11,7 @@ Architecture:
     Sample: z ~ N(0,I) → reverse blocks conditioned on h
 """
 
+import math
 import os, sys
 import numpy as np
 import torch
@@ -21,6 +22,7 @@ from torch import Tensor
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from base_model import BaseModel
 from models.ar_real_nvp import _make_rnn, _extract_h
+from models.conditioning import ConditioningBlock, DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS
 
 
 class _ActNorm(nn.Module):
@@ -81,14 +83,14 @@ class _InvLinearLU(nn.Module):
 class _CondAffineCoupling(nn.Module):
     """GLOW coupling conditioned on h. Splits: x1 = x[:n_half], x2 = x[n_half:]."""
 
-    def __init__(self, input_size: int, rnn_hidden: int, hidden: int = 128):
+    def __init__(self, input_size: int, rnn_hidden: int, cond_dim: int, hidden: int = 128):
         super().__init__()
         n_half = input_size // 2
         n_free = input_size - n_half
         self.n_half = n_half
         self.n_free = n_free
         self.net = nn.Sequential(
-            nn.Linear(n_half + rnn_hidden, hidden), nn.ReLU(),
+            nn.Linear(n_half + rnn_hidden + cond_dim, hidden), nn.ReLU(),
             nn.Linear(hidden, hidden), nn.ReLU(),
             nn.Linear(hidden, n_free * 2),
         )
@@ -115,69 +117,104 @@ class ARGlow(BaseModel):
         self.n_stations  = input_size
         self.window_size = window_size
         self.rnn_type    = rnn_type
+        self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
+        self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.act_norms   = nn.ModuleList([_ActNorm(input_size)           for _ in range(n_steps)])
         self.inv_linears = nn.ModuleList([_InvLinearLU(input_size)       for _ in range(n_steps)])
-        self.couplings   = nn.ModuleList([_CondAffineCoupling(input_size, rnn_hidden, hidden_size)
+        self.couplings   = nn.ModuleList([_CondAffineCoupling(input_size, rnn_hidden, self.cond_dim, hidden_size)
                                           for _ in range(n_steps)])
 
     def _encode_window(self, window):
         return _extract_h(self.rnn(window), self.rnn_type)
 
-    def _fwd(self, x, h):
+    def _cond_embed(self, cond: dict | None, batch_size: int, device: torch.device) -> Tensor:
+        if cond is None:
+            return torch.zeros(batch_size, self.cond_dim, device=device)
+        return self.cond_block(cond)
+
+    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
+        """Build conditioning dict for a given day-of-year (1–366)."""
+        angle = 2.0 * math.pi * doy / 365.25
+        month_idx = int((doy - 1) * 12 / 365) % 12
+        return {
+            'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
+            'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
+            'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
+        }
+
+    def _fwd(self, x, h_cond):
         z, ld = x, torch.zeros(x.shape[0], device=x.device)
         for an, il, cp in zip(self.act_norms, self.inv_linears, self.couplings):
             z, d = an(z);    ld = ld + d
             z, d = il(z);    ld = ld + d
-            z, d = cp(z, h); ld = ld + d
+            z, d = cp(z, h_cond); ld = ld + d
         return z, ld
 
-    def _inv(self, z, h):
+    def _inv(self, z, h_cond):
         x = z
         for an, il, cp in zip(reversed(self.act_norms), reversed(self.inv_linears), reversed(self.couplings)):
-            x = cp.inverse(x, h)
+            x = cp.inverse(x, h_cond)
             x = il.inverse(x)
             x = an.inverse(x)
         return x
 
-    def log_prob(self, x, h):
-        z, ld = self._fwd(x, h)
+    def log_prob(self, x, h_cond):
+        z, ld = self._fwd(x, h_cond)
         return -0.5 * (z**2 + np.log(2 * np.pi)).sum(-1) + ld
 
     def loss(self, x, beta=1.0):
-        window, target = x
+        if len(x) == 3:
+            window, target, cond = x
+        else:
+            window, target = x
+            cond = None
         h   = self._encode_window(window)
-        nll = -self.log_prob(target, h).mean()
+        cond_emb = self._cond_embed(cond, target.shape[0], target.device)
+        h_cond = torch.cat([h, cond_emb], dim=-1)
+        nll = -self.log_prob(target, h_cond).mean()
         return {'total': nll, 'nll': nll}
 
-    def _flow_sample(self, h, n):
-        z = torch.randn(n, self.n_stations, device=h.device)
-        return self._inv(z, h).clamp(min=0.0)
+    def _flow_sample(self, h_cond, n):
+        z = torch.randn(n, self.n_stations, device=h_cond.device)
+        return self._inv(z, h_cond).clamp(min=0.0)
 
     @torch.no_grad()
-    def sample(self, n, steps=None, method=None):
+    def sample(self, n, steps=None, method=None, start_doy: int = 1):
         device = next(self.parameters()).device
         window = torch.zeros(1, self.window_size, self.n_stations, device=device)
-        for _ in range(self.window_size):
+        for i in range(self.window_size):
+            doy = (start_doy - self.window_size + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, 1)
+            cond_emb = self._cond_embed(cond, 1, device)
+            h_cond = torch.cat([h, cond_emb], dim=-1)
+            y = self._flow_sample(h_cond, 1)
             window = torch.cat([window[:, 1:], y.unsqueeze(1)], dim=1)
         samples = []
-        for _ in range(n):
+        for i in range(n):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, 1)
+            cond_emb = self._cond_embed(cond, 1, device)
+            h_cond = torch.cat([h, cond_emb], dim=-1)
+            y = self._flow_sample(h_cond, 1)
             window = torch.cat([window[:, 1:], y.unsqueeze(1)], dim=1)
             samples.append(y)
         return torch.cat(samples, dim=0)
 
     @torch.no_grad()
-    def sample_rollout(self, seed_window, n_days, n_scenarios=10):
+    def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_doy: int = 1):
         device = next(self.parameters()).device
         window = seed_window.to(device).unsqueeze(0).expand(n_scenarios, -1, -1).clone()
         days = []
-        for _ in range(n_days):
+        for i in range(n_days):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, n_scenarios, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, n_scenarios)
+            cond_emb = self._cond_embed(cond, n_scenarios, device)
+            h_cond = torch.cat([h, cond_emb], dim=-1)
+            y = self._flow_sample(h_cond, n_scenarios)
             window = torch.cat([window[:, 1:], y.unsqueeze(1)], dim=1)
             days.append(y)
         return torch.stack(days, dim=1)

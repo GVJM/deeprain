@@ -13,6 +13,7 @@ Architecture:
 rnn_type: 'gru' (default) or 'lstm'
 """
 
+import math
 import os, sys
 import numpy as np
 import torch
@@ -22,6 +23,7 @@ from torch import Tensor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from base_model import BaseModel
+from models.conditioning import ConditioningBlock, DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS
 
 
 def _make_rnn(rnn_type: str, input_size: int, hidden_size: int):
@@ -47,7 +49,7 @@ class _CondCouplingLayer(nn.Module):
     Invertibility preserved: h only conditions s,t computation, not x_fixed.
     """
 
-    def __init__(self, input_size: int, mask: Tensor, rnn_hidden: int, hidden: int = 128):
+    def __init__(self, input_size: int, mask: Tensor, rnn_hidden: int, cond_dim: int, hidden: int = 128):
         super().__init__()
         self.register_buffer('mask', mask.float())
         n_fixed = int(mask.sum().item())
@@ -55,7 +57,7 @@ class _CondCouplingLayer(nn.Module):
         self.n_fixed = n_fixed
         self.n_free  = n_free
         self.net = nn.Sequential(
-            nn.Linear(n_fixed + rnn_hidden, hidden), nn.ReLU(),
+            nn.Linear(n_fixed + rnn_hidden + cond_dim, hidden), nn.ReLU(),
             nn.Linear(hidden, hidden), nn.ReLU(),
             nn.Linear(hidden, n_free * 2),
         )
@@ -93,6 +95,8 @@ class ARRealNVP(BaseModel):
         self.n_stations  = input_size
         self.window_size = window_size
         self.rnn_type    = rnn_type
+        self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
+        self.cond_dim    = self.cond_block.total_dim
         self.rnn = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.layers = nn.ModuleList()
         for i in range(n_coupling):
@@ -102,58 +106,92 @@ class ARRealNVP(BaseModel):
             if mask.all() or (~mask).all():
                 mask = torch.zeros(input_size, dtype=torch.bool)
                 mask[:input_size // 2] = True
-            self.layers.append(_CondCouplingLayer(input_size, mask, rnn_hidden, hidden_size))
+            self.layers.append(_CondCouplingLayer(input_size, mask, rnn_hidden, self.cond_dim, hidden_size))
         self.log_scale = nn.Parameter(torch.zeros(input_size))
 
     def _encode_window(self, window: Tensor) -> Tensor:
         return _extract_h(self.rnn(window), self.rnn_type)
 
-    def log_prob(self, x: Tensor, h: Tensor) -> Tensor:
+    def _cond_embed(self, cond: dict | None, batch_size: int, device: torch.device) -> Tensor:
+        if cond is None:
+            return torch.zeros(batch_size, self.cond_dim, device=device)
+        return self.cond_block(cond)
+
+    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
+        """Build conditioning dict for a given day-of-year (1–366)."""
+        angle = 2.0 * math.pi * doy / 365.25
+        month_idx = int((doy - 1) * 12 / 365) % 12
+        return {
+            'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
+            'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
+            'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
+        }
+
+    def log_prob(self, x: Tensor, h_cond: Tensor) -> Tensor:
         z = x * torch.exp(self.log_scale)
         log_det = self.log_scale.sum().expand(x.shape[0])
         for layer in self.layers:
-            z, ld = layer(z, h)
+            z, ld = layer(z, h_cond)
             log_det = log_det + ld
         log_pz = -0.5 * (z ** 2 + np.log(2 * np.pi)).sum(dim=-1)
         return log_pz + log_det
 
     def loss(self, x, beta: float = 1.0) -> dict:
-        window, target = x
+        if len(x) == 3:
+            window, target, cond = x
+        else:
+            window, target = x
+            cond = None
         h   = self._encode_window(window)
-        nll = -self.log_prob(target, h).mean()
+        cond_emb = self._cond_embed(cond, target.shape[0], target.device)
+        h_cond = torch.cat([h, cond_emb], dim=-1)
+        nll = -self.log_prob(target, h_cond).mean()
         return {'total': nll, 'nll': nll}
 
-    def _flow_sample(self, h: Tensor, n: int) -> Tensor:
-        z = torch.randn(n, self.n_stations, device=h.device)
+    def _flow_sample(self, h_cond: Tensor, n: int) -> Tensor:
+        z = torch.randn(n, self.n_stations, device=h_cond.device)
         z = z * torch.exp(-self.log_scale)
         for layer in reversed(self.layers):
-            z = layer.inverse(z, h)
+            z = layer.inverse(z, h_cond)
         return z.clamp(min=0.0)
 
     @torch.no_grad()
-    def sample(self, n: int, steps=None, method=None) -> Tensor:
+    def sample(self, n: int, steps=None, method=None, start_doy: int = 1) -> Tensor:
         device = next(self.parameters()).device
         window = torch.zeros(1, self.window_size, self.n_stations, device=device)
-        for _ in range(self.window_size):
+        for i in range(self.window_size):
+            doy = (start_doy - self.window_size + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, 1)
+            cond_emb = self._cond_embed(cond, 1, device)
+            h_cond = torch.cat([h, cond_emb], dim=-1)
+            y = self._flow_sample(h_cond, 1)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
         samples = []
-        for _ in range(n):
+        for i in range(n):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, 1)
+            cond_emb = self._cond_embed(cond, 1, device)
+            h_cond = torch.cat([h, cond_emb], dim=-1)
+            y = self._flow_sample(h_cond, 1)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             samples.append(y)
         return torch.cat(samples, dim=0)
 
     @torch.no_grad()
-    def sample_rollout(self, seed_window: Tensor, n_days: int, n_scenarios: int = 10) -> Tensor:
+    def sample_rollout(self, seed_window: Tensor, n_days: int, n_scenarios: int = 10,
+                       start_doy: int = 1) -> Tensor:
         device = next(self.parameters()).device
         window = seed_window.to(device).unsqueeze(0).expand(n_scenarios, -1, -1).clone()
         days = []
-        for _ in range(n_days):
+        for i in range(n_days):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, n_scenarios, device)
             h = self._encode_window(window)
-            y = self._flow_sample(h, n_scenarios)
+            cond_emb = self._cond_embed(cond, n_scenarios, device)
+            h_cond = torch.cat([h, cond_emb], dim=-1)
+            y = self._flow_sample(h_cond, n_scenarios)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             days.append(y)
         return torch.stack(days, dim=1)

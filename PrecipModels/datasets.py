@@ -48,3 +48,38 @@ class TemporalDataset(Dataset):
             target: FloatTensor (S,)   — dia alvo
         """
         return self.data[i : i + self.W], self.data[i + self.W]
+
+
+class TemporalCondDataset(Dataset):
+    """
+    Dataset temporal com condicionamento sazonal no alvo.
+
+    Retorna (window, target, cond_target_dict).
+    cond_target_dict contém tensores alinhados ao dia alvo (i+W).
+    """
+
+    def __init__(self, data_norm: np.ndarray, cond_arrays: dict, window_size: int):
+        self.data = torch.FloatTensor(data_norm)
+        self.W = window_size
+
+        # Mapeia tipos: categóricas → LongTensor, contínuas → FloatTensor
+        from models.conditioning import DEFAULT_CATEGORICALS
+        cat_names = {name for name, _, _ in DEFAULT_CATEGORICALS}
+        self.cond = {
+            k: (torch.LongTensor(v) if k in cat_names else torch.FloatTensor(v))
+            for k, v in cond_arrays.items()
+        }
+
+    def __len__(self) -> int:
+        return len(self.data) - self.W
+
+    def __getitem__(self, i: int):
+        """
+        Returns:
+            window: FloatTensor (W, S)
+            target: FloatTensor (S,)
+            cond_target: dict[str, Tensor (B,)] — alinhado ao target
+        """
+        target_idx = i + self.W
+        cond_target = {k: v[target_idx] for k, v in self.cond.items()}
+        return self.data[i : target_idx], self.data[target_idx], cond_target

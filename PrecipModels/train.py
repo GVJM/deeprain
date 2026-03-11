@@ -33,7 +33,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 
-from datasets import TemporalDataset
+from datasets import TemporalDataset, TemporalCondDataset
 from data_utils import load_data, load_data_with_cond, denormalize
 from base_model import BaseModel
 from models import get_model, MODEL_NAMES
@@ -336,24 +336,35 @@ def train_neural_model_temporal(
     kl_warmup: int,
     device: torch.device,
     model_name: str,
+    train_cond: dict | None = None,
     print_every: int = 50,
     optimizer_state: dict = None,
     eval_norm: np.ndarray = None,
+    eval_cond: dict | None = None,
     out_dir: str = None,
     opt_config: tuple = None,
 ) -> Tuple[List[dict], float, dict]:
     """Training loop for autoregressive temporal models.
-    Uses TemporalDataset → (window, target) pairs; passes tuple to model.loss()."""
+    Uses TemporalDataset or TemporalCondDataset; passes tuple to model.loss()."""
     _use_amp, _amp_dtype = opt_config if opt_config is not None else (False, torch.float32)
 
-    dataset = TemporalDataset(train_norm, window_size)
-    loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    if train_cond is not None:
+        dataset = TemporalCondDataset(train_norm, train_cond, window_size)
+        loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    else:
+        dataset = TemporalDataset(train_norm, window_size)
+        loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
     if optimizer_state is not None:
         optimizer.load_state_dict(optimizer_state)
 
-    eval_dataset = TemporalDataset(eval_norm, window_size) if eval_norm is not None else None
+    if eval_norm is not None and eval_cond is not None:
+        eval_dataset = TemporalCondDataset(eval_norm, eval_cond, window_size)
+    elif eval_norm is not None:
+        eval_dataset = TemporalDataset(eval_norm, window_size)
+    else:
+        eval_dataset = None
 
     print(f"\n[{model_name}] Temporal training: {max_epochs} epochs, lr={lr}, batch={batch_size}, window={window_size}")
     print("-" * 60)
@@ -373,12 +384,18 @@ def train_neural_model_temporal(
             n_samples = 0
             beta = get_beta(epoch, kl_warmup)
 
-            for window_batch, target_batch in loader:
+            for batch in loader:
+                if train_cond is not None:
+                    window_batch, target_batch, cond_batch = batch
+                    cond_batch = {k: v.to(device) for k, v in cond_batch.items()}
+                else:
+                    window_batch, target_batch = batch
+                    cond_batch = None
                 window_batch = window_batch.to(device)
                 target_batch = target_batch.to(device)
                 optimizer.zero_grad()
                 with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                    loss_dict = model.loss((window_batch, target_batch), beta=beta)
+                    loss_dict = model.loss((window_batch, target_batch, cond_batch), beta=beta)
                 loss_dict['total'].backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -398,10 +415,16 @@ def train_neural_model_temporal(
                 val_running = {}
                 val_n = 0
                 with torch.no_grad():
-                    for w_val, t_val in eval_loader:
+                    for batch in eval_loader:
+                        if eval_cond is not None:
+                            w_val, t_val, c_val = batch
+                            c_val = {k: v.to(device) for k, v in c_val.items()}
+                        else:
+                            w_val, t_val = batch
+                            c_val = None
                         w_val, t_val = w_val.to(device), t_val.to(device)
                         with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                            vd = model.loss((w_val, t_val), beta=beta)
+                            vd = model.loss((w_val, t_val, c_val), beta=beta)
                         bsz = t_val.shape[0]
                         for k, v in vd.items():
                             val_running[k] = val_running.get(k, 0.0) + v.item() * bsz
@@ -778,7 +801,7 @@ def train_model(args):
     # config.json para _mc: cond_probs salvo após set_cond_distribution (abaixo)
 
     # ── Dados (brutos completos em ordem temporal) ──
-    if is_mc:
+    if is_mc or is_temporal:
         _, data_raw_full, _, _, station_names, cond_arrays_full = load_data_with_cond(
             data_path=args.data_path,
             normalization_mode="scale_only",
@@ -1052,6 +1075,7 @@ def train_model(args):
         history, ms_per_epoch, final_opt_state, interrupted = train_neural_model_temporal(
             model=model,
             train_norm=train_norm,
+            train_cond=train_cond,
             window_size=window_size or 30,
             max_epochs=max_epochs,
             lr=lr,
@@ -1061,6 +1085,7 @@ def train_model(args):
             model_name=model_name,
             optimizer_state=optimizer_state,
             eval_norm=eval_norm,
+            eval_cond=eval_cond,
             out_dir=out_dir,
             opt_config=_opt_config,
         )
@@ -1186,7 +1211,7 @@ def main():
                         help="Diretório base para salvar resultados")
     parser.add_argument("--n_samples", type=int, default=5000,
                         help="Amostras a gerar na avaliação")
-    parser.add_argument("--holdout_ratio", type=float, default=0.2,
+    parser.add_argument("--holdout_ratio", type=float, default=0.0,
                         help="Proporção final da série usada como avaliação temporal")
     # ── Parâmetros de arquitetura ─────────────────────────────────────────────
     parser.add_argument("--hidden_size", type=int, default=None,

@@ -33,6 +33,7 @@ Key advantage over ARFlowMatch:
     - VAE decoder provides structured non-negative output
 """
 
+import math
 import os
 import sys
 
@@ -44,6 +45,7 @@ from torch import Tensor
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from base_model import BaseModel
 from models.flow_match import SinusoidalEmbedding
+from models.conditioning import ConditioningBlock, DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS
 
 
 class _LatentVelocityMLP(nn.Module):
@@ -54,10 +56,10 @@ class _LatentVelocityMLP(nn.Module):
     Output: velocity in latent space (L,)
     """
 
-    def __init__(self, latent_size: int, t_embed_dim: int, gru_hidden: int,
+    def __init__(self, latent_size: int, t_embed_dim: int, gru_hidden: int, cond_dim: int,
                  hidden: int = 256, n_layers: int = 4):
         super().__init__()
-        in_dim = latent_size + t_embed_dim + gru_hidden
+        in_dim = latent_size + t_embed_dim + gru_hidden + cond_dim
         layers = [nn.Linear(in_dim, hidden), nn.SiLU()]
         for _ in range(n_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
@@ -119,6 +121,8 @@ class ARLatentFM(BaseModel):
         self.gru_hidden     = gru_hidden
         self.latent_size    = latent_size
         self.n_sample_steps = n_sample_steps
+        self.cond_block     = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
+        self.cond_dim       = self.cond_block.total_dim
 
         # ── GRU: compresses (W, S) → h (gru_hidden,) ─────────────────────────
         self.gru = nn.GRU(
@@ -130,7 +134,7 @@ class ARLatentFM(BaseModel):
         )
 
         # ── VAE Encoder: [target(S) || h(H)] → (mu, logvar) ──────────────────
-        enc_in = input_size + gru_hidden
+        enc_in = input_size + gru_hidden + self.cond_dim
         self.encoder = nn.Sequential(
             nn.Linear(enc_in, hidden_size),
             nn.LeakyReLU(0.1),
@@ -141,7 +145,7 @@ class ARLatentFM(BaseModel):
         self.fc_logvar = nn.Linear(hidden_size // 2, latent_size)
 
         # ── VAE Decoder: [z(L) || h(H)] → y_hat(S) ───────────────────────────
-        dec_in = latent_size + gru_hidden
+        dec_in = latent_size + gru_hidden + self.cond_dim
         self.decoder = nn.Sequential(
             nn.Linear(dec_in, hidden_size // 2),
             nn.LeakyReLU(0.1),
@@ -157,6 +161,7 @@ class ARLatentFM(BaseModel):
             latent_size=latent_size,
             t_embed_dim=t_embed_dim,
             gru_hidden=gru_hidden,
+            cond_dim=self.cond_dim,
             hidden=hidden_size,
             n_layers=n_layers,
         )
@@ -168,24 +173,39 @@ class ARLatentFM(BaseModel):
         _, h_n = self.gru(window)   # h_n: (num_layers, B, gru_hidden)
         return h_n[-1]              # last layer: (B, gru_hidden)
 
-    def _encode_latent(self, target: Tensor, h: Tensor):
+    def _cond_embed(self, cond: dict | None, batch_size: int, device: torch.device) -> Tensor:
+        if cond is None:
+            return torch.zeros(batch_size, self.cond_dim, device=device)
+        return self.cond_block(cond)
+
+    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
+        """Build conditioning dict for a given day-of-year (1–366)."""
+        angle = 2.0 * math.pi * doy / 365.25
+        month_idx = int((doy - 1) * 12 / 365) % 12
+        return {
+            'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
+            'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
+            'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
+        }
+
+    def _encode_latent(self, target: Tensor, h: Tensor, cond_emb: Tensor):
         """
         target: (B, S), h: (B, H)
         → mu, logvar: each (B, L)
         """
-        feat = self.encoder(torch.cat([target, h], dim=-1))
+        feat = self.encoder(torch.cat([target, h, cond_emb], dim=-1))
         return self.fc_mu(feat), torch.clamp(self.fc_logvar(feat), -10, 10)
 
-    def _decode(self, z: Tensor, h: Tensor) -> Tensor:
+    def _decode(self, z: Tensor, h: Tensor, cond_emb: Tensor) -> Tensor:
         """z: (B, L), h: (B, H) → y_hat: (B, S)"""
-        return self.decoder(torch.cat([z, h], dim=-1))
+        return self.decoder(torch.cat([z, h, cond_emb], dim=-1))
 
     def _reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
         """Reparameterization trick: z = mu + eps * std, eps ~ N(0,I)"""
         std = torch.exp(0.5 * logvar)
         return mu + torch.randn_like(std) * std
 
-    def _flow_sample(self, h: Tensor, n: int) -> Tensor:
+    def _flow_sample(self, h: Tensor, cond_emb: Tensor, n: int) -> Tensor:
         """
         Euler integration from t=0 to t=1 in latent space, conditioned on h.
 
@@ -200,7 +220,7 @@ class ARLatentFM(BaseModel):
             t_val    = i * dt
             t_tensor = torch.full((n,), t_val, device=device)
             t_emb    = self.t_embed(t_tensor)
-            v        = self.velocity(z, t_emb, h)
+            v        = self.velocity(z, t_emb, torch.cat([h, cond_emb], dim=-1))
             z        = z + v * dt
 
         return z
@@ -220,14 +240,20 @@ class ARLatentFM(BaseModel):
         Returns:
             {'total': ..., 'mse_recon': ..., 'kl': ..., 'fm_loss': ...}
         """
-        window, target = x
+        if len(x) == 3:
+            window, target, cond = x
+        else:
+            window, target = x
+            cond = None
         B = target.shape[0]
 
         # ── VAE forward ──────────────────────────────────────────────────────
         h              = self._encode_window(window)          # (B, H)
-        mu, logvar     = self._encode_latent(target, h)       # (B, L)
+        cond_emb       = self._cond_embed(cond, B, target.device)
+        h_cond         = torch.cat([h, cond_emb], dim=-1)
+        mu, logvar     = self._encode_latent(target, h, cond_emb)       # (B, L)
         z              = self._reparameterize(mu, logvar)     # (B, L)
-        y_hat          = self._decode(z, h)                   # (B, S)
+        y_hat          = self._decode(z, h, cond_emb)         # (B, S)
 
         mse_recon = F.mse_loss(y_hat, target)
         kl        = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
@@ -244,14 +270,15 @@ class ARLatentFM(BaseModel):
         target_v = z_target - z_0                           # constant velocity
 
         t_emb    = self.t_embed(t)
-        v_pred   = self.velocity(z_t, t_emb, h)   # h shared: GRU trained by both VAE and flow
+        v_pred   = self.velocity(z_t, t_emb, h_cond)   # h shared: GRU trained by both VAE and flow
         fm_loss  = F.mse_loss(v_pred, target_v)
 
         total = mse_recon + beta * kl + fm_loss
         return {"total": total, "mse_recon": mse_recon, "kl": kl, "fm_loss": fm_loss}
 
     @torch.no_grad()
-    def sample(self, n: int, steps: int | None = None, method=None) -> Tensor:
+    def sample(self, n: int, steps: int | None = None, method=None,
+               start_doy: int = 1) -> Tensor:
         """
         Generates n samples via autoregressive rollout from a zero window.
 
@@ -265,17 +292,23 @@ class ARLatentFM(BaseModel):
         window = torch.zeros(1, self.window_size, self.n_stations, device=device)
 
         # Warmup: let GRU state converge
-        for _ in range(self.window_size):
+        for i in range(self.window_size):
+            doy = (start_doy - self.window_size + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            z = self._flow_sample(h, 1)
-            y = self._decode(z, h)
+            cond_emb = self._cond_embed(cond, 1, device)
+            z = self._flow_sample(h, cond_emb, 1)
+            y = self._decode(z, h, cond_emb)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
 
         samples = []
-        for _ in range(n):
+        for i in range(n):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)
-            z = self._flow_sample(h, 1)
-            y = self._decode(z, h)
+            cond_emb = self._cond_embed(cond, 1, device)
+            z = self._flow_sample(h, cond_emb, 1)
+            y = self._decode(z, h, cond_emb)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             samples.append(y)
 
@@ -287,6 +320,7 @@ class ARLatentFM(BaseModel):
         seed_window: Tensor,
         n_days: int,
         n_scenarios: int = 10,
+        start_doy: int = 1,
     ) -> Tensor:
         """
         Generates multiple scenarios via autoregressive rollout.
@@ -298,6 +332,7 @@ class ARLatentFM(BaseModel):
             seed_window: (W, S) — initial historical window (normalized)
             n_days:      number of days to generate
             n_scenarios: number of parallel scenarios
+            start_doy:   day-of-year (1–366) of the first generated day
 
         Returns:
             Tensor (n_scenarios, n_days, n_stations)
@@ -313,10 +348,13 @@ class ARLatentFM(BaseModel):
         )   # (n_scenarios, W, n_stations)
 
         days = []
-        for _ in range(n_days):
+        for i in range(n_days):
+            doy = (start_doy + i - 1) % 365 + 1
+            cond = self._make_day_cond(doy, n_scenarios, device)
             h = self._encode_window(window)          # (n_sc, H)
-            z = self._flow_sample(h, n_scenarios)    # (n_sc, L)
-            y = self._decode(z, h)                   # (n_sc, S)
+            cond_emb = self._cond_embed(cond, n_scenarios, device)
+            z = self._flow_sample(h, cond_emb, n_scenarios)    # (n_sc, L)
+            y = self._decode(z, h, cond_emb)                   # (n_sc, S)
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             days.append(y)
 
