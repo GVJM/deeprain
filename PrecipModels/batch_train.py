@@ -13,17 +13,19 @@ Usage (from PrecipModels/):
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-import argparse, json, sys
+import argparse, json, sys, time, traceback
 from argparse import Namespace
+from datetime import datetime
 from pathlib import Path
 
 QUEUE_FILE  = Path(__file__).parent / "TRAINING_QUEUE.json"
 OUTPUTS_DIR = Path(__file__).parent / "outputs"
+LOG_FILE    = OUTPUTS_DIR / "batch_log.jsonl"
 
 # All fields train_model(args) reads; None → falls back to MODEL_DEFAULTS / ARCH_DEFAULTS
 _NS_DEFAULTS = dict(
     # Training scalars (None → MODEL_DEFAULTS)
-    max_epochs=1000, lr=None, batch_size=None, kl_warmup=None,
+    max_epochs=1000, lr=None, batch_size=128, kl_warmup=500,
     latent_size=None, latent_occ=None, latent_amt=None,
     normalization_mode=None,
     # Infrastructure (match argparse defaults)
@@ -33,7 +35,7 @@ _NS_DEFAULTS = dict(
     # Architecture (None → ARCH_DEFAULTS)
     hidden_size=None, n_layers=None, n_coupling=None,
     hidden_occ=None, hidden_amt=None,
-    gru_hidden=None, context_dim=None, window_size=None,
+    gru_hidden=None, context_dim=None, window_size=7,
     hidden_dim=None, t_embed_dim=None, n_sample_steps=None,
     rnn_hidden=None, rnn_type=None, n_steps=None, mf_ratio=None,
 )
@@ -55,6 +57,23 @@ def build_namespace(entry, data_path_override, device_override):
     if "data_path" not in kw or kw.get("data_path") is None:
         kw["data_path"] = "../dados_sabesp/dayprecip.dat"
     return Namespace(**kw)
+
+def log_job(record: dict):
+    """Append one JSON record to the batch log file."""
+    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(LOG_FILE, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def fmt_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(int(seconds), 60)
+    if m < 60:
+        return f"{m}m{s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m{s:02d}s"
+
 
 def print_table(queue):
     statuses = {e["variant_name"]: get_status(e["variant_name"]) for e in queue}
@@ -108,10 +127,22 @@ def main():
     sys.path.insert(0, str(Path(__file__).parent))
     from train import train_model
 
+    completed_times = []
+    n_ok = 0
+    n_err = 0
+
     for i, (entry, status) in enumerate(to_run):
         vn = entry["variant_name"]
+        remaining = len(to_run) - i
+        if completed_times:
+            avg_s = sum(completed_times) / len(completed_times)
+            eta_str = fmt_duration(avg_s * remaining)
+            eta_msg = f"  ETA ~{eta_str} for {remaining} remaining job(s)"
+        else:
+            eta_msg = ""
         print(f"\n{'#'*65}")
-        print(f"# [{i+1}/{len(to_run)}] {vn}  status={status}")
+        print(f"# [{i+1}/{len(to_run)}] {vn}  status={status}{eta_msg}")
+        print(f"# Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'#'*65}\n")
 
         ns = build_namespace(entry, args.data_path, args.device)
@@ -119,17 +150,44 @@ def main():
             ns.resume = True
             print(f"[batch_train] Partial run detected — auto-resuming {vn}")
 
+        t0 = time.perf_counter()
+        job_ok = True
+        err_msg = None
         try:
             train_model(ns)
+            n_ok += 1
         except KeyboardInterrupt:
-            print(f"\n[batch_train] Interrupted at '{vn}'. Stopping.")
+            elapsed = time.perf_counter() - t0
+            print(f"\n[batch_train] Interrupted at '{vn}' after {fmt_duration(elapsed)}. Stopping.")
+            log_job({"variant": vn, "status": "interrupted",
+                     "elapsed_s": round(elapsed, 1),
+                     "timestamp": datetime.now().isoformat()})
             break
         except Exception as e:
-            print(f"\n[batch_train] ERROR in '{vn}': {e}")
+            job_ok = False
+            err_msg = traceback.format_exc()
+            n_err += 1
+            print(f"\n[batch_train] ERROR in '{vn}':\n{err_msg}")
             print("[batch_train] Skipping to next...")
-            continue
 
-    print("\n" + "="*65)
+        elapsed = time.perf_counter() - t0
+        completed_times.append(elapsed)
+        log_job({
+            "variant": vn,
+            "status": "ok" if job_ok else "error",
+            "elapsed_s": round(elapsed, 1),
+            "elapsed_fmt": fmt_duration(elapsed),
+            "error": err_msg,
+            "timestamp": datetime.now().isoformat(),
+        })
+        status_tag = "OK" if job_ok else "ERROR"
+        print(f"\n[batch_train] [{i+1}/{len(to_run)}] {vn} — {status_tag} in {fmt_duration(elapsed)}")
+
+    total_s = sum(completed_times)
+    print(f"\n{'='*65}")
+    print(f"Batch complete: {n_ok} OK, {n_err} errors  |  Total time: {fmt_duration(total_s)}")
+    if LOG_FILE.exists():
+        print(f"Log written to: {LOG_FILE}")
     print_table(json.load(open(QUEUE_FILE)))
 
 if __name__ == "__main__":

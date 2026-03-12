@@ -38,9 +38,29 @@
    - [8.5 glow_mc.py — GlowMC](#85-glow_mcpy--glowmc)
    - [8.6 flow_match_mc.py — FlowMatchingMC](#86-flow_match_mcpy--flowmatchingmc)
    - [8.7 flow_match_film_mc.py — FlowMatchingFilmMC](#87-flow_match_film_mcpy--flowmatchingfilmmc)
-9. [compare.py — Pipeline de Comparação](#9-comparepy--a-pipeline-de-comparação)
-10. [Exemplos de Uso Completos](#10-exemplos-de-uso-completos)
-11. [Resultados e Conclusões](#11-resultados-e-conclusões)
+   - [8.8 latent_fm_mc.py — LatentFlowMc](#88-latent_fm_mcpy--latentflowmc)
+   - [8.9 hurdle_latent_fm_mc.py — HurdleLatentFlowMc](#89-hurdle_latent_fm_mcpy--hurdlelatentflowmc)
+   - [8.10 hurdle_vae_cond_mc.py — HurdleVAECondMc](#810-hurdle_vae_cond_mcpy--hurdlevaecondmc)
+9. [Modelos Thresholded](#9-modelos-thresholded)
+   - [9.0 Conceito: Transformação Sentinel -1.0](#90-conceito-transformação-sentinel--10)
+   - [9.1 thresholded_vae_mc.py — ThresholdedVAEMc](#91-thresholded_vae_mcpy--thresholdedvaemc)
+   - [9.2 thresholded_real_nvp_mc.py — ThresholdedRealNVPMc](#92-thresholded_real_nvp_mcpy--thresholdedrealnvpmc)
+   - [9.3 thresholded_glow_mc.py — ThresholdedGlowMc](#93-thresholded_glow_mcpy--thresholdedglowmc)
+   - [9.4 thresholded_latent_flow_mc.py — ThresholdedLatentFlowMc](#94-thresholded_latent_flow_mcpy--thresholdedlatentflowmc)
+10. [Modelos Autoregressivos (AR)](#10-modelos-autoregressivos-ar)
+    - [10.0 Por que modelos AR?](#100-por-que-modelos-autoregressivos)
+    - [10.1 datasets.py — TemporalDataset](#101-datasetspy--temporaldataset)
+    - [10.2 generate_scenarios.py — Rollout AR](#102-generate_scenariospy--rollout-ar)
+    - [10.3 ar_vae.py — ARVAE](#103-ar_vaepy--arvae)
+    - [10.4 ar_flow_match.py — ARFlowMatch](#104-ar_flow_matchpy--arflowmatch)
+    - [10.5 ar_latent_fm.py — ARLatentFM](#105-ar_latent_fmpy--arlatentfm)
+    - [10.6 ar_real_nvp.py — ARRealNVP (+ LSTM)](#106-ar_real_nvppy--arrealnvp--lstm)
+    - [10.7 ar_glow.py — ARGlow (+ LSTM)](#107-ar_glowpy--arglow--lstm)
+    - [10.8 ar_mean_flow.py — ARMeanFlow](#108-ar_mean_flowpy--armeanflow)
+    - [10.9 ar_flow_map.py — ARFlowMap](#109-ar_flow_mappy--arflowmap)
+11. [compare.py — Pipeline de Comparação](#11-comparepy--a-pipeline-de-comparação)
+12. [Exemplos de Uso Completos](#12-exemplos-de-uso-completos)
+13. [Resultados e Conclusões](#13-resultados-e-conclusões)
 
 ---
 
@@ -2915,7 +2935,1177 @@ python train.py --model flow_match_film_mc
 
 ---
 
-## 9. compare.py — A Pipeline de Comparação
+---
+
+### 8.8 latent_fm_mc.py — LatentFlowMc
+
+**Base:** `latent_flow.py` + `conditioning.py`
+
+**Pergunta:** E se combinarmos dois estágios — um VAE para comprimir os dados e um Flow Matching no espaço latente — com condicionamento mensal em ambos?
+
+#### Visão Geral: Dois Estágios
+
+O `LatentFlowMc` é o modelo _mc mais sofisticado da família. Usa uma arquitetura em dois estágios separados:
+
+```
+Estágio 1 — CVAE (treinado primeiro):
+    x ──cat──► [x, c_emb] ──► Encoder ──► (mu, logvar)
+                                               │ reparametrize
+                                               z  (espaço latente)
+                                               │
+               [z, c_emb] ──► Decoder ──► x_hat
+
+Estágio 2 — Flow Matching no espaço latente (VAE congelado):
+    z₀ ~ N(0,I)
+    z₁ = mu (encoder sem ruído) — target mais limpo
+    z_t = (1-t)·z₀ + t·z₁
+    LatentFlowNet: v_θ(z_t, t_emb, c_emb) → velocidade em L
+    → ODE integra z₀ → z₁ → decoder → x
+```
+
+**Filosofia:** O VAE aprende a comprimir. O Flow Matching aprende a navegar no espaço comprimido. Cada estágio tem sua tarefa isolada, o que estabiliza o treino.
+
+#### ConditioningBlock em Ambos os Estágios
+
+O `ConditioningBlock` produz `c_emb` (vetor de 6 dimensões: embedding de mês + sin/cos do dia do ano). Esse vetor é injetado:
+
+1. **No encoder CVAE:** `[x ‖ c_emb]` → o encoder "sabe" em qual mês está ao comprimir
+2. **No decoder CVAE:** `[z ‖ c_emb]` → o decoder usa o mês para reconstruir corretamente
+3. **Na LatentFlowNet via FiLM:** cada `_FlowResBlock` recebe o mês como condição de modulação
+
+#### FiLM na Rede de Velocidade Latente
+
+```python
+class _FlowResBlock(nn.Module):
+    def __init__(self, hidden_dim, cond_dim):
+        self.norm    = LayerNorm(hidden_dim)
+        self.linear1 = Linear(hidden_dim, hidden_dim * 2)
+        self.linear2 = Linear(hidden_dim * 2, hidden_dim)
+        self.film    = _FiLM(hidden_dim, cond_dim)   # gera scale e shift
+
+    def forward(self, h, cond):
+        # cond = cat([t_emb, c_emb]) — tempo + mês juntos
+        h_norm = self.norm(h)
+        h2 = SiLU(self.linear1(h_norm))
+        h2 = self.linear2(h2)
+        h2 = self.film(h2, cond)   # modula com tempo+mês
+        return h + h2              # conexão residual
+```
+
+O `_FiLM` gera `(scale, shift) = Linear(cond)`, e aplica: `h_film = scale * h2 + shift`. Isso permite que o modelo ajuste a velocidade de acordo com o mês **a cada camada** da rede de velocidade.
+
+#### `set_stage("vae")` vs `set_stage("flow")`
+
+```python
+def set_stage(self, stage: str):
+    if stage == "vae":
+        # Descongela: encoder, decoder, fc_mu, fc_logvar
+        # Congela:    flow_net, t_embed
+    elif stage == "flow":
+        # Congela:    encoder, decoder, fc_mu, fc_logvar
+        # Descongela: flow_net, t_embed
+```
+
+Durante o estágio `"flow"`, o encoder ainda é usado para gerar os targets `z₁ = mu(x)` — mas seus parâmetros estão congelados (não recebem gradientes do flow). Isso garante que o Flow Matching aprenda a replicar a distribuição do VAE, e não a deformá-la.
+
+#### Treinamento em Dois Passos
+
+```bash
+# Estágio 1: treina VAE com KL annealing
+python train.py --model latent_fm_mc --max_epochs 500 --kl_warmup 200 --latent_size 64
+
+# Estágio 2: treina flow no latente (VAE congelado automaticamente)
+# train.py detecta flow_epochs > 0 e faz set_stage("flow") + segundo loop
+```
+
+#### FAQ
+
+**P: Por que usar `mu` (sem ruído) como target do flow, em vez de `z = mu + epsilon * std`?**
+R: Usando `z₁ = mu` o target é **determinístico** para cada dado de entrada — isso torna os targets do flow mais limpos e estáveis. Com `z₁ = z`, o target variaria a cada passo de treino (pois `epsilon` muda), tornando o aprendizado ruidoso.
+
+**P: O modelo precisa de dois arquivos de saída?**
+R: Não. O `model.pt` salva todos os parâmetros (VAE + flow + embeddings) em um único checkpoint. O `set_stage` apenas controla quais parâmetros recebem gradientes durante o treino.
+
+---
+
+### 8.9 hurdle_latent_fm_mc.py — HurdleLatentFlowMc
+
+**Base:** `hurdle_vae_cond.py` + `latent_fm_mc.py` + `conditioning.py`
+
+**Pergunta:** E se combinarmos hurdle (modelagem explícita de ocorrência vs. quantidade) com a arquitetura de dois estágios do `latent_fm_mc`?
+
+#### Visão Geral: Três Módulos
+
+```
+OccVAE (ocorrência):
+    x_bin = (x > 0).float()                    — dias com chuva (1) ou secos (0)
+    Encoder: [x_bin ‖ c_emb] → z_occ → logits
+    Decoder: z_occ → logits de ocorrência
+    Loss:    40·BCE + β·KL_occ
+
+AmtVAE (quantidade):
+    x_log  = log1p(x) * (x > 0).float()        — log da precipitação (0 em dias secos)
+    Encoder: [x_log ‖ occ_mask ‖ c_emb] → z_amt
+    Decoder: [z_amt ‖ c_emb] → x_log_hat
+    Loss:    MSE_wet + β·KL_amt                 — MSE apenas nos dias chuvosos
+
+FlowNet (no espaço latente de amt):
+    z_t = (1-t)·z₀ + t·z_amt_target
+    v_θ(z_t, t_emb, c_emb com FiLM) → velocidade latente
+```
+
+**Interação ocorrência-quantidade:** O `AmtVAE` recebe `[x_log ‖ occ_mask ‖ c_emb]` como entrada — ou seja, o encoder de quantidade "sabe" quais estações choveram naquele dia. Isso permite que ele aprenda que, quando há muitas estações com chuva (frente fria, evento grande), as quantidades tendem a ser maiores e mais correlacionadas.
+
+#### Loss do Estágio 1 (VAE)
+
+```python
+# BCE para ocorrência (sem mask — todos os dias importam)
+bce_loss = BCE(logits_occ, x_bin)      # logits_occ: previsão do OccVAE
+loss_occ = 40.0 * bce_loss + beta * (100 * kl_occ + kl_amt)
+
+# MSE para quantidade (apenas dias chuvosos)
+wet_mask = (x > 0).float()
+mse_wet  = MSE(x_log_hat * wet_mask, x_log * wet_mask)
+loss_amt = mse_wet
+
+total_stage1 = loss_occ + loss_amt
+```
+
+Por que `40·BCE`? A escala 40 foi encontrada empiricamente para balancear as losses de ocorrência (BCE, escala ~0.6) e quantidade (MSE, escala ~0.01). Sem isso, o modelo ignora a ocorrência por ser "barata".
+
+Por que `100·KL_occ`? O `KL_occ` tende a ser pequeno (o espaço binário de ocorrência é simples), então o fator 100 o torna relevante no balanço total.
+
+#### Amostragem
+
+```python
+def sample(self, n, cond=None):
+    c_emb = cond_block(cond)
+
+    # 1. Gerar máscara de ocorrência via OccVAE
+    z_occ  = N(0, I)
+    logits = occ_vae.decode(z_occ, c_emb)
+    occ_mask = Bernoulli(sigmoid(logits)).sample()   # 0 ou 1 por estação
+
+    # 2. ODE no espaço latente de amount (flow)
+    z_t = N(0, I)  [no espaço latente L]
+    for t in Euler(0 → 1):
+        z_t += v_θ(z_t, t_emb, c_emb) * dt
+    # z_t ≈ z_amt ~ distribuição aprendida pelo AmtVAE
+
+    # 3. Decodificar quantidade + aplicar máscara
+    x_log_hat = amt_vae.decode(z_t, c_emb)
+    x_amt     = expm1(ReLU(x_log_hat))    # ReLU→0 para valores ≤ 0, expm1 desfaz log1p
+    return x_amt * occ_mask               # 0 onde seco, quantidade onde chove
+```
+
+**Detalhe:** `expm1(ReLU(y))` em vez de `expm1(y)` garante não-negatividade. O `ReLU` mapeia qualquer predição ≤ 0 para 0 (dia seco implícito); o `expm1` converte valores positivos do espaço `log1p` de volta para mm/dia.
+
+#### Comparação com HurdleVAECond
+
+| Aspecto | `hurdle_vae_cond` | `hurdle_latent_fm_mc` |
+|---------|-------------------|------------------------|
+| Quantidade: geração | Decoder direto `z → x` | ODE no espaço latente |
+| Estágios de treino | 1 (simultâneo) | 2 (VAE → Flow) |
+| Condicionamento | ConditioningBlock | ConditioningBlock + FiLM no flow |
+| Velocidade de geração | Rápida (1 forward pass) | Média (N passos Euler) |
+| Complexidade | Média | Alta |
+
+---
+
+### 8.10 hurdle_vae_cond_mc.py — HurdleVAECondMc
+
+**Base:** `hurdle_vae_cond.py` + `conditioning.py`
+
+**Pergunta:** E se pegarmos o `hurdle_vae_cond` e simplesmente adicionarmos condicionamento mensal, sem a complexidade do flow em dois estágios?
+
+#### Arquitetura Simplificada
+
+```
+HurdleVAECondMc:
+    OccVAE + AmtVAE treinados simultaneamente (sem estágios)
+    Ambos condicionados no mês via ConditioningBlock
+
+    OccVAE:
+        Encoder: [x_bin ‖ c_emb] → (mu_occ, logvar_occ)
+        Decoder: [z_occ ‖ c_emb] → logits
+        Loss:    BCE + β·KL_occ
+
+    AmtVAE (_ConditionalMiniVAE):
+        Encoder: [x_log ‖ occ_mask ‖ c_emb] → (mu_amt, logvar_amt)
+        Decoder: [z_amt ‖ occ_mask ‖ c_emb] → x_log_hat
+        Loss:    MSE_wet + β·KL_amt
+```
+
+**Diferença-chave vs `hurdle_latent_fm_mc`:** Não há `FlowNet`. A geração de quantidades usa diretamente `z_amt → decoder`, sem ODE. Isso torna o modelo mais leve e o treino mais simples (sem troca de estágios, sem freeze de parâmetros).
+
+#### `_ConditionalMiniVAE` com `c_emb`
+
+```python
+class _ConditionalMiniVAE(nn.Module):
+    """
+    CVAE: encoder e decoder recebem (cond_size) extra como condição.
+    """
+    def __init__(self, input_size, cond_size, latent_size):
+        # cond_size = occ_size + c_emb_dim (máscara de ocorrência + mês)
+
+        enc_in = input_size + cond_size
+        self.encoder = MLP(enc_in → h → h)
+        self.fc_mu, self.fc_logvar = ...
+
+        dec_in = latent_size + cond_size
+        self.decoder = MLP(dec_in → h → h → input_size)
+
+    def encode(self, x, c):        return fc_mu(encoder(cat([x, c]))), ...
+    def decode(self, z, c):        return decoder(cat([z, c]))
+```
+
+No `HurdleVAECondMc`, `c` para o `AmtVAE` é `cat([occ_mask, c_emb])` — ou seja, a condição é tanto a máscara de ocorrência quanto o mês. O `occ_mask` permite que o decodificador de quantidade saiba exatamente quais estações devem ter chuva, gerando valores coerentes.
+
+#### Loss Única (sem estágios)
+
+```python
+def loss(self, x, beta=1.0, cond=None):
+    c_emb = cond_block(cond)
+
+    # Ocorrência
+    x_bin  = (x > 0).float()
+    occ_cond = cat([x_bin, c_emb])
+    recon_occ, mu_occ, logvar_occ = occ_vae(x_bin, occ_cond)
+    bce   = BCE(recon_occ, x_bin)
+    kl_o  = KL(mu_occ, logvar_occ)
+
+    # Quantidade
+    x_log  = log1p(x) * (x > 0).float()
+    amt_cond = cat([x_bin, c_emb])    # usa máscara real (teacher forcing)
+    recon_amt, mu_amt, logvar_amt = amt_vae(x_log, amt_cond)
+    wet_mask = (x > 0).float()
+    mse_wet  = MSE(recon_amt * wet_mask, x_log * wet_mask)
+    kl_a     = KL(mu_amt, logvar_amt)
+
+    return bce + mse_wet + beta * (kl_o + kl_a)
+```
+
+#### Diagrama Comparativo dos Três Hurdle _mc
+
+```
+hurdle_vae_cond_mc      hurdle_latent_fm_mc     hurdle_simple_mc
+─────────────────────   ─────────────────────   ─────────────────
+[Occ VAE + Amt VAE]     [Occ VAE + Amt VAE      [MLP direto +
+ sem flow                + FlowNet no latente]    Log-Normal]
+ 1 estágio               2 estágios               sem VAE
+ mais leve               mais complexo            mais interpretável
+```
+
+#### FAQ
+
+**P: Por que `HurdleVAECondMc` em vez de simplesmente usar `hurdle_simple_mc`?**
+R: O `hurdle_simple_mc` emite `(mu, sigma)` Log-Normal diretamente — mais rígido. O `HurdleVAECondMc` usa um espaço latente intermediário, permitindo que a distribuição gerada seja mais flexível do que uma Log-Normal pura. Útil quando os dados têm modos múltiplos (dias de chuva leve vs. eventos intensos).
+
+**P: Qual o impacto do `c_emb` no `AmtVAE`?**
+R: O mês ajuda a capturar a sazonalidade das quantidades — verão tende a ter chuvas convectivas intensas e localizadas, enquanto inverno tem chuvas mais suaves e distribuídas. Com `c_emb`, o decoder sabe quando esperar cada regime.
+
+---
+
+## 9. Modelos Thresholded
+
+### 9.0 Conceito: Transformação Sentinel -1.0
+
+#### O Problema: Como Tratar os Zeros?
+
+Todos os modelos vistos até agora lidam com zeros na precipitação de duas formas:
+1. **Hurdle model:** dois modelos separados — um para ocorrência (é zero ou não?) e um para a quantidade (quanto?)
+2. **Modelos de quantidade apenas:** normalização que afasta os zeros, ou clipping pós-geração
+
+Os modelos `thresholded` propõem uma **terceira abordagem**: transformar todos os dias em um único espaço contínuo, onde dias secos têm um valor especial (sentinel) e dias chuvosos têm valores positivos.
+
+#### A Transformação
+
+```python
+# Treino — entrada para o modelo:
+y_target = where(x > 0, log1p(x), -1.0)
+
+# Se chove:  y_target = log1p(x)  — espaço logarítmico, valores > 0
+# Se seco:   y_target = -1.0      — valor sentinel fixo (abaixo de zero)
+```
+
+```python
+# Geração — converter a saída do modelo de volta para mm/dia:
+x_gerado = expm1(ReLU(y_pred))
+
+# ReLU(y_pred):
+#   se y_pred ≤ 0: ReLU = 0 → x = expm1(0) - 1... espera
+# Mais exato:
+x_gerado = expm1(ReLU(y_pred))
+# ReLU(y) > 0 → expm1(y) > 0  (mm/dia)
+# ReLU(y) = 0 → expm1(0) = 0  (dia seco, CORRETO)
+```
+
+**Diagrama da transformação:**
+
+```
+Espaço original (mm/dia):     Espaço transformado:
+  0.0 (seco)           →         -1.0  (sentinel)
+  0.5 mm               →          0.405 (= log1p(0.5))
+  5.0 mm               →          1.792 (= log1p(5))
+ 50.0 mm               →          3.932 (= log1p(50))
+
+Decodificação com ReLU + expm1:
+  y_pred = -1.5  →  ReLU = 0   → expm1(0) = 0.0  → seco ✓
+  y_pred = -0.2  →  ReLU = 0   → expm1(0) = 0.0  → seco ✓
+  y_pred =  1.5  →  ReLU = 1.5 → expm1(1.5) ≈ 3.5 mm ✓
+  y_pred =  3.9  →  ReLU = 3.9 → expm1(3.9) ≈ 49 mm  ✓
+```
+
+#### Por que -1.0?
+
+O valor `-1.0` foi escolhido porque:
+- É facilmente distinguível dos valores de chuva (`log1p(x) ≥ 0` para `x ≥ 0`)
+- Está a 1 unidade abaixo do limiar, criando uma "fronteira suave" de separação
+- Não é `-∞` (como seria `log(0)`), então é numericamente tratável
+- O modelo precisa aprender a "empurrar" predições para abaixo de 0 em dias secos — isso é uma tarefa de regressão bem definida
+
+**Analogia:** É como codificar ausência em uma régua de logaritmos. Você marca os dias chuvosos na régua (posições 0 a 4) e os dias secos no "chão abaixo da régua" (posição -1). O modelo aprende onde colocar cada dia.
+
+#### Vantagem vs. Desvantagem em relação ao Hurdle
+
+| Aspecto | Hurdle | Threshold |
+|---------|--------|-----------|
+| Número de modelos | 2 (ocorrência + quantidade) | 1 (único) |
+| Modelagem de zeros | Explícita (Bernoulli) | Implícita (regressão abaixo de 0) |
+| Número de parâmetros | ~2× | ~1× |
+| Risco | Modelo de ocorrência mal calibrado | Modelo pode "vazar" → zeros incorretos |
+| Treino | Mais complexo (dois módulos) | Mais simples (único objetivo MSE/NLL) |
+
+---
+
+### 9.1 thresholded_vae_mc.py — ThresholdedVAEMc
+
+**Arquitetura:** VAE padrão no espaço transformado, com condicionamento mensal via `ConditioningBlock`.
+
+#### Forward Pass
+
+```python
+class ThresholdedVAEMc(BaseModel):
+    def __init__(self, input_size=15, latent_size=128, n_layers=3):
+        E = cond_block.total_dim   # 6 (mês + sin/cos)
+        h_dim = max(latent_size*2, input_size*2)
+
+        # Encoder: [y_target(15) ‖ c_emb(6)] → (mu, logvar)
+        self.encoder = MLP(input_size + E → h_dim × n_layers)
+        self.fc_mu, self.fc_logvar = Linear(h_dim, latent_size)
+
+        # Decoder: [z(128) ‖ c_emb(6)] → y_pred(15)   SEM ativação final
+        self.decoder = MLP(latent_size + E → h_dim × n_layers → input_size)
+```
+
+**Importante:** o decoder não tem ativação final (nem `ReLU`, nem `sigmoid`). A saída está no espaço transformado — pode ser negativa (dia seco previsto) ou positiva (dia chuvoso previsto). A conversão para mm/dia acontece fora, em `sample()`.
+
+#### Loss
+
+```python
+def loss(self, x, beta=1.0, cond=None):
+    y = threshold_transform(x)   # where(x > 0, log1p(x), -1.0)
+    c_emb = cond_block(cond)
+
+    # Encoder
+    inp = cat([y, c_emb], dim=-1)
+    mu, logvar = encoder(inp)
+    z = reparameterize(mu, logvar)
+
+    # Decoder
+    y_hat = decoder(cat([z, c_emb], dim=-1))  # saída no espaço transformado
+
+    mse = MSE(y_hat, y)       # MSE no espaço transformado
+    kl  = KL(mu, logvar)
+    return mse + beta * kl
+```
+
+Note que o **MSE é calculado no espaço transformado** (`y = log1p(x)` para dias chuvosos, `-1.0` para secos). Isso significa que o modelo é penalizado igualmente por errar a quantidade de chuva e por classificar incorretamente um dia seco como chuvoso.
+
+#### Geração
+
+```python
+def sample(self, n, cond=None):
+    c_emb = cond_block(cond)
+    z = N(0, I)
+    y_pred = decoder(cat([z, c_emb]))
+    return expm1(ReLU(y_pred))   # converte espaço threshold → mm/dia
+```
+
+---
+
+### 9.2 thresholded_real_nvp_mc.py — ThresholdedRealNVPMc
+
+**Base:** `real_nvp_mc.py` + transformação sentinel.
+
+**Diferença-chave:** Em vez de aplicar a transformação `log1p` apenas nos dados brutos, aplica a transformação completa com sentinel:
+
+```python
+# No loss():
+y = where(x > 0, log1p(x), -1.0)   # threshold transform
+# Passa y (não x) pelo flow
+nll = -flow.log_prob(y, c_emb)      # NLL exata no espaço transformado
+
+# No sample():
+y_pred = flow.inverse(z, c_emb)     # amostra no espaço transformado
+return expm1(ReLU(y_pred))          # volta para mm/dia
+```
+
+Reutiliza `_CouplingLayerCond` do `real_nvp_mc.py` — as camadas de acoplamento são idênticas, apenas os dados de entrada mudam (espaço threshold em vez de normalizado).
+
+**Vantagem:** NLL exata, como o `real_nvp_mc`, mas sem precisar de modelo de ocorrência separado. O flow aprende implicitamente a "aglomerar" probabilidade ao redor de `-1.0` para os dias secos.
+
+---
+
+### 9.3 thresholded_glow_mc.py — ThresholdedGlowMc
+
+**Base:** `glow_mc.py` + transformação sentinel.
+
+Mesma ideia do `ThresholdedRealNVPMc`, mas com a arquitetura GLOW (ActNorm + InvertibleLinearLU + AffineCoupling condicionada).
+
+```python
+# Bloco GLOW padrão, mas agora em y = threshold(x):
+class ThresholdedGlowMc(BaseModel):
+    def loss(self, x, beta=1.0, cond=None):
+        y = where(x > 0, log1p(x), -1.0)
+        c_emb = cond_block(cond)
+        z, log_det = flow.forward(y, c_emb)
+        nll = 0.5 * z.pow(2).sum(-1) - log_det
+        return nll.mean()
+
+    def sample(self, n, cond=None):
+        c_emb = cond_block(cond)
+        z = N(0, I)
+        y_pred = flow.inverse(z, c_emb)
+        return expm1(ReLU(y_pred))
+```
+
+**ActNorm + threshold:** A ActNorm inicializa a escala e bias usando o primeiro batch. Como os dados agora incluem `-1.0` (dias secos), a inicialização se adapta automaticamente à nova distribuição bimodal (pico em -1.0 e distribuição contínua em [0, ∞)).
+
+---
+
+### 9.4 thresholded_latent_flow_mc.py — ThresholdedLatentFlowMc
+
+**Base:** `latent_fm_mc.py` + transformação sentinel.
+
+O modelo mais expressivo da família thresholded. Reutiliza a arquitetura completa de dois estágios (CVAE + Flow Matching no espaço latente), mas opera no espaço threshold.
+
+```python
+# Estágio 1 (VAE): aprende a comprimir y = threshold(x)
+y = where(x > 0, log1p(x), -1.0)
+loss_vae = MSE(decoder(encoder(y, c_emb), c_emb), y) + beta * KL
+
+# Estágio 2 (Flow): aprende a navegar no espaço latente de y
+z₁ = mu(encoder(y))   # target latente (sem ruído)
+loss_flow = MSE(v_θ(z_t, t, c_emb), z₁ - z₀)
+
+# Geração: ODE → z₁ → decoder → y_pred → expm1(ReLU) → mm/dia
+```
+
+A diferença central em relação ao `hurdle_latent_fm_mc`:
+- **Sem modelo de ocorrência explícito** — a máscara seco/chuvoso emerge implicitamente do valor sentinel
+- **Um único VAE** (em vez de OccVAE + AmtVAE) — menos parâmetros, treino mais simples
+- **Risco:** se o decoder emite valores muito próximos de 0 para dias secos, podem aparecer precipitações espúrias muito pequenas
+
+#### Diagrama Comparativo da Família Thresholded
+
+```
+ThresholdedVAEMc        ThresholdedRealNVPMc    ThresholdedGlowMc     ThresholdedLatentFlowMc
+─────────────────       ─────────────────────   ─────────────────     ────────────────────────
+VAE simples              Flow normalizante        GLOW                  VAE + Flow no latente
+MSE + KL                 NLL exata                NLL exata             MSE + KL + FM loss
+1 estágio                1 estágio                1 estágio             2 estágios
+↑ simples                ↑ rigoroso               ↑ mixing completo     ↑ mais expressivo
+```
+
+---
+
+## 10. Modelos Autoregressivos (AR)
+
+### 10.0 Por que Modelos Autoregressivos?
+
+#### A Limitação dos Modelos Estáticos
+
+Todos os modelos vistos até aqui — VAE, RealNVP, Flow Matching, GLOW — geram dias de precipitação **independentemente entre si**. Dado o mesmo modelo, gerar o dia 1 e o dia 2 é como fazer dois lançamentos independentes: o dia 2 não "sabe" que o dia 1 aconteceu.
+
+Isso é fisicamente irreal. Na prática:
+- Se choveu muito ontem, hoje é mais provável que chova novamente (persistência de sistemas meteorológicos)
+- Se uma frente fria chegou há 3 dias, ainda pode estar influenciando o padrão de chuva hoje
+- Sequências longas de seca são mais comuns do que sequências aleatórias sugerem
+
+#### O Modelo Autoregressivo
+
+Um modelo AR aprende: **"dado o que aconteceu nos últimos W dias, como é amanhã?"**
+
+```
+P(y_t | y_{t-1}, y_{t-2}, ..., y_{t-W})
+
+Onde:
+    y_t:     precipitação no dia t (vetor de 15 estações)
+    W:       tamanho da janela histórica (padrão: 30 dias)
+    h_t:     resumo comprimido da história → RNN/GRU → vetor fixo
+```
+
+**Diagrama do mecanismo AR:**
+
+```
+  ┌─────────────────────────────────────────────────┐
+  │               WINDOW (W=30 dias)                 │
+  │  y(t-30) → y(t-29) → ... → y(t-2) → y(t-1)     │
+  └─────────────────────┬───────────────────────────┘
+                        │ GRU/LSTM
+                        ▼
+                    h_t (contexto)
+                        │
+              ┌─────────┴─────────┐
+              │   Modelo Gerador   │   (VAE, Flow, MeanFlow...)
+              │   y_pred ~ p(·|h_t)│
+              └─────────┬─────────┘
+                        ▼
+                    y(t)  ← inserido na janela para o próximo passo
+```
+
+#### Dados: SABESP em vez de INMET
+
+Os modelos AR usam dados do sistema **SABESP** (`../dados_sabesp/dayprecip.dat`) em vez dos dados INMET. Motivos:
+- A série SABESP é mais longa (mais anos de dados)
+- Estações mais próximas umas das outras → correlação espacial mais forte → mais interessante capturar temporalmente
+- Série contínua (menos gaps) → fundamental para sliding window
+
+```bash
+# Sempre passar data_path para modelos AR:
+python train.py --model ar_vae --data_path ../dados_sabesp/dayprecip.dat
+```
+
+#### Comparação: Estático vs. AR
+
+| Característica | Modelos Estáticos | Modelos AR |
+|---------------|-------------------|------------|
+| Independência temporal | ✓ Dias i.i.d. | ✗ Condicionado no histórico |
+| Autocorrelação lag-1 | ✗ Não captura | ✓ Aprende do histórico |
+| Dados necessários | INMET ou SABESP | SABESP (série contínua) |
+| Geração | `sample(n)` direto | `sample_rollout(seed, n_days)` |
+| Paralelismo na geração | ✓ Total | ✗ Sequencial |
+| Velocidade de treino | ✓ Mais rápido | ✗ Mais lento (RNN) |
+
+#### As 11 Variantes AR
+
+| Modelo | Núcleo Gerador | Velocidade (1000 amostras) | RNN |
+|--------|---------------|---------------------------|-----|
+| `ar_vae` | VAE | ~5s | GRU (fixo) |
+| `ar_flow_match` | Flow Matching | ~20s (50 steps) | GRU (fixo) |
+| `ar_latent_fm` | VAE + FM latente | ~25s | GRU (fixo) |
+| `ar_real_nvp` | RealNVP | ~67s | GRU |
+| `ar_real_nvp_lstm` | RealNVP | ~67s | LSTM |
+| `ar_glow` | GLOW | ~50s | GRU |
+| `ar_glow_lstm` | GLOW | ~50s | LSTM |
+| `ar_mean_flow` | MeanFlow | **~7s** | GRU |
+| `ar_mean_flow_lstm` | MeanFlow | **~7s** | LSTM |
+| `ar_flow_map` | FlowMap | **~7s** | GRU |
+| `ar_flow_map_lstm` | FlowMap | **~7s** | LSTM |
+
+**Nota sobre velocidade:** Os modelos de coupling (RealNVP, GLOW) são lentos porque cada camada de acoplamento é **sequencial** — precisa da saída da camada anterior para calcular a próxima. MeanFlow e FlowMap são 1-step: geram a amostra em uma única avaliação da rede.
+
+---
+
+### 10.1 datasets.py — TemporalDataset
+
+O `TemporalDataset` é a infraestrutura que converte uma série temporal em pares `(window, target)` para treino supervisionado.
+
+#### Sliding Window
+
+```
+Série temporal: [y₀, y₁, y₂, ..., y_{N-1}]   (N dias, S estações)
+
+Com W=30:
+    Par 0:  window = [y₀, ..., y₂₉]  (30 dias),  target = y₃₀
+    Par 1:  window = [y₁, ..., y₃₀]  (30 dias),  target = y₃₁
+    Par 2:  window = [y₂, ..., y₃₁]  (30 dias),  target = y₃₂
+    ...
+    Par N-W-1: window = [y_{N-W-1}, ...],  target = y_{N-1}
+
+Total de pares: N - W
+```
+
+**Embaralhamento é seguro:** cada par `(window_i, target_i)` é uma instância de treino independente para o objetivo `L(y_t | window_t)`. Mesmo que as janelas se sobreponham (a janela do par 1 compartilha 29 dias com a do par 0), cada par representa uma instância de aprendizado diferente.
+
+#### Implementação
+
+```python
+class TemporalDataset(Dataset):
+    def __init__(self, data_norm: np.ndarray, window_size: int):
+        self.data = torch.FloatTensor(data_norm)
+        self.W = window_size
+
+    def __len__(self):
+        return len(self.data) - self.W   # N - W pares
+
+    def __getitem__(self, i):
+        window = self.data[i : i + self.W]    # (W, S)
+        target = self.data[i + self.W]         # (S,)
+        return window, target
+```
+
+#### `TemporalCondDataset`
+
+Para modelos que usam condicionamento sazonal (dia do ano), o `TemporalCondDataset` adiciona um terceiro elemento: dicionário de condicionamento alinhado ao dia alvo.
+
+```python
+class TemporalCondDataset(Dataset):
+    # Retorna (window, target, cond_dict)
+    # cond_dict = {'month': tensor, 'day_sin': tensor, 'day_cos': tensor}
+    # Tudo alinhado ao índice i + W (o dia alvo)
+```
+
+#### Integração com `train.py`
+
+Em `train.py`, o `_TEMPORAL_MODELS` set detecta modelos AR e usa `train_neural_model_temporal()` em vez do loop padrão:
+
+```python
+if model_name in _TEMPORAL_MODELS:
+    dataset = TemporalDataset(data_norm, window_size=args.window_size)
+    loader  = DataLoader(dataset, batch_size=128, shuffle=True)
+    # loop: loss = model.loss((window, target), beta=beta)
+```
+
+---
+
+### 10.2 generate_scenarios.py — Rollout AR
+
+O `generate_scenarios.py` implementa a geração de múltiplos cenários futuros a partir de uma janela histórica real.
+
+#### O Conceito de Rollout
+
+Durante o **treino**, os modelos AR usam *teacher forcing*: a janela histórica é sempre preenchida com dados reais. Na **geração**, não há dados reais do futuro — cada dia gerado é inserido na janela para gerar o dia seguinte.
+
+```
+Teacher forcing (treino):
+    window = [y₁, y₂, ..., y₃₀]  ← dados REAIS
+    → modelo prevê y₃₁
+
+Rollout autônomo (geração):
+    window = [y₁, y₂, ..., y₃₀]  ← dados reais (seed)
+    → modelo gera ŷ₃₁
+    window = [y₂, y₃, ..., y₃₀, ŷ₃₁]  ← ŷ substituiu y₃₀
+    → modelo gera ŷ₃₂
+    ...
+```
+
+#### `sample_rollout()`
+
+Todos os modelos AR implementam:
+
+```python
+def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_doy=1):
+    """
+    Args:
+        seed_window: Tensor (W, S) — janela real de inicialização
+        n_days:      int — número de dias a gerar
+        n_scenarios: int — cenários paralelos (mesma seed, divergem no ruído)
+        start_doy:   int — dia do ano do primeiro dia gerado (para condicionamento)
+    Returns:
+        Tensor (n_scenarios, n_days, n_stations)
+    """
+    # Replica seed para todos os cenários
+    window = seed_window.unsqueeze(0).expand(n_scenarios, -1, -1).clone()
+
+    days = []
+    for i in range(n_days):
+        doy = (start_doy + i - 1) % 365 + 1
+        h = self._encode_window(window)       # (n_scenarios, rnn_hidden)
+        y = self._generate_sample(h, n_scenarios)  # (n_scenarios, n_stations)
+        window = cat([window[:, 1:], y.unsqueeze(1)], dim=1)  # desloca janela
+        days.append(y)
+
+    return stack(days, dim=1)   # (n_scenarios, n_days, n_stations)
+```
+
+**Diversidade entre cenários:** Todos os `n_scenarios` cenários partem da mesma `seed_window`, mas divergem porque o ruído amostrado a cada passo é independente. Isso é como gerar múltiplas previsões climáticas com as mesmas condições iniciais — a incerteza se propaga ao longo do tempo.
+
+#### Exemplo de Uso
+
+```bash
+# Gerar 50 cenários de 365 dias com ar_vae
+python generate_scenarios.py \
+    --model ar_vae \
+    --n_scenarios 50 \
+    --n_days 365 \
+    --data_path ../dados_sabesp/dayprecip.dat
+```
+
+O script:
+1. Carrega o modelo treinado de `outputs/ar_vae/`
+2. Usa os últimos 30 dias dos dados de validação como `seed_window`
+3. Gera 50 cenários de 365 dias
+4. Plota: distribuição de precipitação total anual, autocorrelação, correlação espacial
+
+---
+
+### 10.3 ar_vae.py — ARVAE
+
+O modelo AR mais simples: substitui o gerador por um VAE condicional no contexto GRU.
+
+#### Arquitetura
+
+```
+Entrada: window (B, W=30, S=90) + target (B, S=90)
+
+GRU (2 camadas):
+    window → h_n[-1]   → h (B, gru_hidden=128)
+
+Encoder:
+    [target(90) ‖ h(128) ‖ c_emb(6)]  →  MLP  →  (mu, logvar) (B, 64)
+
+Decoder:
+    [z(64) ‖ h(128) ‖ c_emb(6)]  →  MLP  →  ReLU  →  y_hat (B, 90)
+    (ReLU garante precipitação ≥ 0)
+
+Loss:
+    MSE(y_hat, target) + beta * KL(q(z|y,h,c) ‖ N(0,I))
+```
+
+#### Por que `gru_hidden` e não passar toda a janela direto?
+
+O GRU comprime 30×90 = 2700 números em um vetor de 128. Sem isso, o encoder precisaria receber 2700 números como entrada — tornando o encoder enorme e o treino lento. O GRU aprende a "resumir" a história relevante automaticamente.
+
+#### Diversidade via Espaço Latente
+
+```python
+# Geração: z ~ N(0,I) — aleatoriedade do dia vem do espaço latente
+z = torch.randn(n_scenarios, latent_size, device=device)
+y = self.decode(z, h, cond_emb)   # (n_scenarios, n_stations)
+```
+
+Dois cenários gerados no mesmo dia (mesma `h_t`) diferem porque `z` é amostrado independentemente. O GRU fornece o contexto determinístico; o VAE adiciona a variabilidade estocástica.
+
+#### `sample()` vs `sample_rollout()`
+
+```python
+# sample(n): rollout sequencial a partir de janela zero (para evaluate_model)
+#   → retorna Tensor (n, n_stations) — como se fossem amostras i.i.d.
+#   → inclui warmup de W=30 passos para o GRU sair do estado zero
+
+# sample_rollout(seed_window, n_days, n_scenarios):
+#   → retorna Tensor (n_scenarios, n_days, n_stations)
+#   → usa janela histórica real como ponto de partida
+```
+
+---
+
+### 10.4 ar_flow_match.py — ARFlowMatch
+
+Substitui o VAE por Flow Matching condicional — sem KL collapse.
+
+#### Vantagem sobre ARVAE
+
+O VAE tem um modo de falha clássico: **posterior collapse**. Quando o decoder é muito poderoso, aprende a gerar dados razoáveis direto de `z ~ N(0,I)` sem precisar do encoder. Resultado: todos os `z` codificados colapsam para `N(0,I)`, o espaço latente perde significado, e a qualidade das amostras cai.
+
+O Flow Matching não tem esse problema — não há KL, não há encoder. A rede de velocidade aprende diretamente a trajetória de ruído → dados.
+
+#### Velocity MLP Condicional
+
+```python
+class _CondVelocityMLP(nn.Module):
+    # Input: [z_t(S) ‖ t_emb(T) ‖ h(H) ‖ c_emb(C)]
+    # Output: velocidade(S)
+
+    def forward(self, z_t, t_emb, h_cond):
+        # h_cond = cat([h, c_emb])  — GRU + condicionamento já concatenados
+        inp = cat([z_t, t_emb, h_cond], dim=-1)
+        return self.net(inp)
+```
+
+**OT path:** `z_t = (1-t)·z₀ + t·target`, velocidade constante `v = target - z₀`. O modelo aprende a seguir essa trajetória reta de ruído → dados condicionado no histórico `h`.
+
+#### Integração Euler
+
+```python
+def _flow_sample(self, h, cond_emb, n):
+    z = N(0, I)               # ponto inicial (ruído)
+    dt = 1 / n_sample_steps   # padrão: 50 passos
+    for i in range(n_sample_steps):
+        t_val = i * dt
+        t_emb = self.t_embed(full(t_val))
+        v = self.velocity(z, t_emb, cat([h, cond_emb]))
+        z = z + v * dt        # passo Euler
+    return z.clamp(min=0)     # não-negatividade
+```
+
+---
+
+### 10.5 ar_latent_fm.py — ARLatentFM
+
+Combina VAE (para comprimir) com Flow Matching (para navegar no espaço comprimido), condicionado no histórico GRU.
+
+#### Arquitetura de Três Módulos Simultâneos
+
+```
+GRU → h                                     [contexto temporal]
+    ↓
+Encoder: [target ‖ h ‖ c_emb] → (mu, logvar) → z    [VAE]
+Decoder: [z ‖ h ‖ c_emb] → y_hat  (ReLU)             [VAE]
+    ↓
+FlowNet: v_θ(z_t, t_emb, h_cond) → velocidade(L)     [Flow no latente]
+```
+
+**Gradientes desacoplados:**
+```python
+# z.detach() — os gradientes do flow não chegam ao encoder VAE
+z_target = z.detach()
+z_0 = N(0, I_L)
+v_pred = self.velocity(z_t, t_emb, h_cond)
+fm_loss = MSE(v_pred, z_target - z_0)
+```
+
+Se os gradientes do flow chegassem ao encoder, ele seria treinado tanto para minimizar o VAE loss quanto o FM loss — objetivos conflitantes. O `detach()` isola as responsabilidades.
+
+#### `free_bits`: Prevenindo Colapso
+
+```python
+kl_per_dim = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())   # (B, L)
+kl = clamp(kl_per_dim, min=free_bits).mean()
+```
+
+`free_bits=0.5` significa: cada dimensão latente deve contribuir com pelo menos 0.5 nats de KL. Dimensões que "quiserem" colapsar (KL < 0.5) são forçadas a manter alguma informação. Isso previne que o encoder se torne degenerado enquanto o flow é treinado.
+
+#### Loss Total
+
+```python
+total = mse_recon + beta * kl + fm_loss
+```
+
+Três termos, três objetivos:
+- `mse_recon`: o decoder deve reconstruir os dados reais
+- `beta * kl`: o espaço latente deve ser regular (próximo de gaussiano)
+- `fm_loss`: o flow deve aprender a navegar no espaço latente
+
+---
+
+### 10.6 ar_real_nvp.py — ARRealNVP (+ LSTM)
+
+Flow normalizante com camadas de acoplamento condicionadas no contexto GRU/LSTM.
+
+#### Helpers Compartilhados
+
+```python
+# _make_rnn e _extract_h são definidos aqui e reutilizados por
+# ar_glow.py, ar_mean_flow.py, ar_flow_map.py
+
+def _make_rnn(rnn_type, input_size, hidden_size):
+    cls = {'gru': nn.GRU, 'lstm': nn.LSTM}[rnn_type]
+    return cls(input_size, hidden_size, num_layers=2, batch_first=True, dropout=0.1)
+
+def _extract_h(rnn_output, rnn_type):
+    _, h_n = rnn_output
+    if rnn_type == 'lstm':
+        h_n = h_n[0]   # LSTM retorna (h_n, c_n)
+    return h_n[-1]      # última camada: (B, hidden)
+```
+
+#### `_CondCouplingLayer`: Acoplamento com Contexto
+
+```python
+class _CondCouplingLayer(nn.Module):
+    # Máscara checkerboard: metade das dimensões são "fixas", metade são "livres"
+    #
+    # Forward (x → z):
+    #   x_fixed = x[:, mask]      ← não modificadas
+    #   x_free  = x[:, ~mask]     ← serão transformadas
+    #   (s, t)  = MLP(cat([x_fixed, h]))   ← MLP condicionada em h
+    #   z_free  = x_free * exp(tanh(s)) + t
+    #   log_det = sum(tanh(s))    ← jacobiano
+    #
+    # Inverse (z → x): resolve z_free = x_free * exp(s) + t para x_free
+    #                  usando h (que não mudou)
+```
+
+**Por que `tanh(s)`?** O `tanh` limita a escala a `[-1, 1]`, o que limita o `log_det` e previne explosão numérica. Sem isso, `exp(s)` poderia ser muito grande ou muito pequeno.
+
+#### GRU vs. LSTM
+
+A opção `rnn_type='lstm'` (registrada como `ar_real_nvp_lstm`) adiciona a **célula de estado** `c` do LSTM, que é análoga a uma memória de longo prazo separada do hidden state `h`. Em teoria, o LSTM captura dependências mais longas que o GRU, mas na prática, para W=30 dias, a diferença tende a ser pequena.
+
+#### Lentidão: 67s para 1000 amostras
+
+Cada amostra requer 8 camadas de acoplamento no modo **inverso** (z → x). No modo forward, as camadas são paralelizáveis. No inverso, cada camada depende da anterior — sequencial, ~8× mais lento que o forward.
+
+---
+
+### 10.7 ar_glow.py — ARGlow (+ LSTM)
+
+GLOW com contexto AR: ActNorm + InvertibleLinearLU + AffineCoupling condicionada.
+
+#### Bloco GLOW
+
+Cada step do GLOW contém três transformações em sequência:
+
+```
+Bloco GLOW (para cada step s de 1 a n_steps):
+    1. ActNorm:       y₁ = (x + loc) * scale   [normaliza cada canal]
+    2. InvLinearLU:   y₂ = W · y₁              [mistura todas as dimensões]
+    3. CondCoupling:  y₃ = coupling(y₂, h)     [acoplamento condicionado em h]
+
+Forward completo: y₃^{n_steps} → z → N(0,I)  (normalização)
+Inverse:          z → inverso de cada step (ordem reversa)
+```
+
+**InvLinearLU:** `W = P·L·U` (decomposição LU com permutação), onde `P` é fixo e `L, U` são parâmetros treináveis. Isso garante invertibilidade (`det(W) ≠ 0` se `diag(U)` ≠ 0) e `log|det(W)|` computável como `sum(log|diag(U)|)`.
+
+#### ⚠️ `_w_inv_cache` — Gotcha Crítico
+
+```python
+class _InvLinearLU(nn.Module):
+    def __init__(self, n):
+        ...
+        self._w_inv_cache = None  # cache da inversa W⁻¹
+
+    def inverse(self, y):
+        if self._w_inv_cache is None:
+            W = P @ L @ U                       # monta W
+            self._w_inv_cache = W.inverse()     # calcula W⁻¹ (cara!)
+        return y @ self._w_inv_cache            # reutiliza W⁻¹
+
+    def train(self, mode=True):
+        super().train(mode)
+        if mode:
+            self._w_inv_cache = None  # invalida cache ao entrar em modo treino
+```
+
+**O problema:** Com 8 steps e 90 dimensões, calcular `W⁻¹` repetidamente para cada amostra seria ruinoso. O cache garante que `W⁻¹` é calculado apenas uma vez por avaliação. **O `train()` override limpa o cache** quando o modelo volta ao modo treino — sem isso, `W⁻¹` ficaria obsoleto após um passo de gradiente (os pesos `L, U` mudaram).
+
+Sem esse cache: ~8000 inversões para 1000 amostras. Com cache: 8 inversões. Diferença de velocidade: ~50× mais lento sem cache.
+
+---
+
+### 10.8 ar_mean_flow.py — ARMeanFlow
+
+**Referência:** arXiv 2505.13447 (Geng et al., maio 2025)
+
+Este é um dos dois modelos mais avançados do projeto, implementando o algoritmo **MeanFlow** — uma técnica de geração em 1 passo baseada no conceito de *velocidade média*.
+
+#### O Problema com Flow Matching Padrão em 1 Passo
+
+No Flow Matching padrão, a velocidade `v_θ(z_t, t)` é **instantânea** — prediz a direção do movimento em cada ponto `t`. Para seguir essa velocidade de forma precisa, precisamos de muitos passos Euler.
+
+```
+Muitos passos (50-100):   z₀ → z₀.₀₂ → z₀.₀₄ → ... → z₁  (preciso, lento)
+1 passo:                  z₀ → z₁ usando v(z₀, t=0)?        (impreciso — curvatura!)
+```
+
+**O problema do 1 passo:** A velocidade instantânea `v(z₀, t=0)` aponta para onde ir no instante 0, mas a trajetória pode ser curva — após 1 passo, chegamos em um ponto errado.
+
+#### A Ideia do MeanFlow: Velocidade Média
+
+Em vez de aprender `v(z_t, t)` (velocidade instantânea), o MeanFlow aprende `u(z_t, r, t)` — a **velocidade média** entre `r` e `t`:
+
+```
+u(z_t, r, t) = "velocidade média do fluxo que parte de z_t no instante t
+                 e integra de r até t"
+
+Analogia: se você sabe que um carro vai de A a B em 1 hora,
+          a velocidade média é (B-A)/1h — independente de curvas no caminho.
+          Você consegue ir de A a B em 1 passo usando essa velocidade média.
+```
+
+**MeanFlow Identity:** A identidade matemática central é:
+
+```
+u(z_t, r, t) = E[velocidade instantânea ao longo de [r, t] | z_t]
+```
+
+Com isso, para ir de `z₁` (ruído) a `z₀` (dados) em 1 passo:
+```
+z₀ ≈ z₁ - u(z₁, r=0, t=1)   ← velocidade média do trecho inteiro [0→1]
+```
+
+#### Dois Embeddings de Tempo: r e t
+
+```python
+class _MeanFlowMLP(nn.Module):
+    # Input: [z_t(S) ‖ r_emb(T) ‖ t_emb(T) ‖ h(H)]
+    #         ↑        ↑ início   ↑ fim do   ↑ contexto GRU
+    #         ponto    do trecho  trecho
+    #
+    # DIFERENÇA do Flow Matching padrão: dois embeddings (r e t), não apenas t!
+
+    def forward(self, z_t, r_emb, t_emb, h):
+        return self.net(cat([z_t, r_emb, t_emb, h], dim=-1))
+```
+
+A rede precisa de dois embeddings porque `u` depende de **onde estamos** (ponto `z_t`, tempo `t`) e de **até onde queremos ir** (tempo `r`). O Flow Matching padrão só precisa de `t` porque a velocidade instantânea não tem "destino futuro".
+
+#### Treinamento Misto: FM + MeanFlow
+
+A cada batch, 75% das amostras são treinadas com FM padrão e 25% com a loss MeanFlow:
+
+```python
+is_mf = rand(B) < self.mf_ratio   # 25% MeanFlow
+
+# ── FM batches (r = t): standard flow matching ────────────────────────
+# Quando r = t, a "velocidade média" degenera para a velocidade instantânea
+# → loss padrão de FM
+u = self.velocity(z_t[fm_idx], t_emb[fm_idx], t_emb[fm_idx], h_cond[fm_idx])
+loss_fm = MSE(u, v_cond[fm_idx])   # v_cond = target - z_0
+
+# ── MeanFlow batches (r < t): velocidade média com correção ───────────
+r = rand * t   # r amostrado uniforme em [0, t]
+u_val, jvp_z = func_jvp(u_fn, (z_t,), (v_cond,))   # derivada direcional
+
+# Diferença finita para ∂u/∂t
+u_t_plus = velocity(z_t, r_emb, t+ε_emb, h)
+du_dt = (u_t_plus - u_val) / ε
+
+# "Correção" = JVP + ∂u/∂t (derivada total de u ao longo da trajetória)
+correction = (jvp_z + du_dt).detach()
+
+# Target com correção: u_target ≈ v_cond - (t-r) * correção
+u_target = v_cond - (t - r) * correction
+loss_mf = MSE(u_val, u_target)
+```
+
+**O JVP (Jacobian-Vector Product):** `jvp_z` é a derivada direcional de `u` em relação a `z_t` na direção `v_cond`. Matematicamente, `jvp_z = (∂u/∂z) · v_cond`. Isso mede "como a velocidade muda se movemos na direção do fluxo" — necessário para corrigir a discrepância entre velocidade instantânea e média.
+
+**Por que `(t-r)`?** A correção cresce com o tamanho do intervalo `[r, t]`. Para r=t (FM puro), a correção é zero — recuperamos o FM padrão. Para `r=0, t=1` (trecho completo), a correção é máxima.
+
+#### Amostragem em 1 Passo
+
+```python
+def _generate_sample(self, h_cond, n):
+    z_1 = N(0, I)                              # ruído puro (t=1)
+    r_emb = self.t_embed(zeros(n))             # r = 0 (início)
+    t_emb = self.t_embed(ones(n))              # t = 1 (fim)
+    return (z_1 - self.velocity(z_1, r_emb, t_emb, h_cond)).clamp(min=0)
+    #              ↑ u(z₁, r=0, t=1, h) — velocidade média do trecho inteiro
+```
+
+**Por que `z₁ - u`?** O fluxo vai de `z₀` (dados) para `z₁` (ruído). Para inverter, queremos ir de `z₁` para `z₀`:
+```
+z₀ ≈ z₁ - u(z₁, r=0, t=1)
+```
+É como dizer: "estou no ponto z₁ (ruído), a velocidade média de 0 até 1 é u, então retrocedo por u para chegar em z₀ (dados)".
+
+#### Diagrama: MeanFlow vs. Flow Matching Padrão
+
+```
+Flow Matching padrão (50 passos):
+    z₀ ──v(z₀,0)──► z₀.₀₂ ──v(·,0.02)──► ... ──► z₁
+    (cada passo pequeno, velocidade instantânea)
+
+MeanFlow (1 passo):
+    z₁ ──u(z₁, r=0, t=1)──► z₀
+    (velocidade média do trecho inteiro, 1 único salto)
+```
+
+**Por que funciona?** A OT path é uma linha reta: `z_t = (1-t)·z₀ + t·z₁`. Para trajetórias retas, a velocidade instantânea e a média são iguais! O truque do MeanFlow é treinar a rede para aprender essa propriedade mesmo em distribuições complexas.
+
+---
+
+### 10.9 ar_flow_map.py — ARFlowMap
+
+**Referência:** arXiv 2505.18825 (Boffi, Albergo, Vanden-Eijnden — NeurIPS 2025)
+
+O segundo modelo avançado de 1 passo, com uma abordagem fundamentalmente diferente do MeanFlow: em vez de aprender a *velocidade*, aprende diretamente o *operador do fluxo* — uma função que mapeia posições.
+
+#### O Conceito: Operador do Fluxo
+
+O **Flow Map** (mapa do fluxo) é a função `Φ(z_s, s, t)` que responde:
+
+> "Se estou no ponto `z_s` no tempo `s`, onde estarei no tempo `t`?"
+
+```
+Φ(z_s, s, t):   z_s ──── t - s segundos de ODE ────► z_t
+
+Exemplos:
+    Φ(z₀, 0, 1) = z₁    ← de dados para ruído em 1 passo
+    Φ(z₁, 1, 0) = z₀    ← de ruído para dados em 1 passo (inversão!)
+    Φ(z₀.₅, 0.5, 0.8)   ← posição em t=0.8 dado que estava em z₀.₅ em t=0.5
+```
+
+**Diferença fundamental:** MeanFlow aprende *velocidades* (derivadas); FlowMap aprende *posições* (integrações). São dual um do outro.
+
+#### Rede `_FlowMapMLP`
+
+```python
+class _FlowMapMLP(nn.Module):
+    # Input: [z_s(S) ‖ s_emb(T) ‖ t_emb(T) ‖ h(H)]
+    #         ↑ posição  ↑ tempo   ↑ destino  ↑ contexto
+    #         atual      atual     desejado    GRU
+    #
+    # Output: z_t(S) — posição prevista em tempo t
+```
+
+**Semelhança estrutural com MeanFlow:** ambos recebem dois embeddings de tempo como input. A diferença está na interpretação: MeanFlow usa `(r, t)` onde `r` é o início e `t` é o fim do intervalo de velocidade média; FlowMap usa `(s, t)` onde `s` é o tempo atual e `t` é o destino.
+
+#### Treinamento
+
+```python
+def loss(self, x, beta=1.0):
+    window, target, cond = x
+    h = encode_window(window)
+    z_0 = N(0, I)
+
+    # Amostrar s e t independentemente (sem restrição de ordem!)
+    s = rand(B)
+    t = rand(B)
+
+    # Calcular posições na trajetória OT
+    z_s = (1 - s) * z_0 + s * target   # ponto no tempo s
+    z_t = (1 - t) * z_0 + t * target   # ponto no tempo t (ground truth)
+
+    # Loss: a rede deve prever z_t dado que está em z_s no tempo s
+    z_t_pred = self.flow_map(z_s, s_emb, t_emb, h_cond)
+    return MSE(z_t_pred, z_t)
+```
+
+**Por que `s` e `t` podem ser amostrados independentemente?** Para a OT path, o mapa do fluxo é exato e explícito:
+```
+Φ(z_s, s, t) = (1-t)·z_0 + t·x = z_t
+```
+Independentemente de qual `s` e `t` você escolha, a resposta correta sempre é `z_t`. Isso significa que há uma quantidade infinita de pares de treino válidos para qualquer trajetória!
+
+#### Amostragem em 1 Passo
+
+```python
+def _generate_sample(self, h_cond, n):
+    z_1 = N(0, I)           # ruído puro (t=1 na escala OT)
+    s_emb = t_embed(ones)   # s = 1 (tempo atual = ruído)
+    t_emb = t_embed(zeros)  # t = 0 (destino = dados)
+
+    return self.flow_map(z_1, s_emb, t_emb, h_cond).clamp(min=0)
+    # Φ(z₁, s=1, t=0, h) — "de onde vim?" (inversão temporal)
+```
+
+**A inversão temporal:** O FlowMap pode ir em qualquer direção temporal. `Φ(z_1, s=1, t=0)` pergunta: "se estou em z_1 (ruído) no tempo s=1, onde estava no tempo t=0 (dados)?" — é exatamente a geração invertida!
+
+#### Diagrama: MeanFlow vs. FlowMap
+
+```
+MeanFlow — pergunta sobre VELOCIDADE:
+    "Qual é a velocidade média de r=0 até t=1, partindo de z_1?"
+    u(z₁, r=0, t=1) → "deslocar z₁ por -u para chegar aos dados"
+
+FlowMap — pergunta sobre POSIÇÃO:
+    "Se estou em z₁ (s=1), onde estava em t=0?"
+    Φ(z₁, s=1, t=0) → "a posição dos dados é o destino"
+
+Ambos chegam em 1 passo. Caminhos diferentes, mesmo destino.
+```
+
+**Comparação de Treinamento:**
+
+| Aspecto | ARMeanFlow | ARFlowMap |
+|---------|-----------|---------|
+| Loss | MSE de velocidade + correção JVP | MSE de posição simples |
+| Complexidade de implementação | Alta (JVP, finite diff) | Baixa (MSE puro) |
+| Teoria | "MeanFlow Identity" | "OT path tem FlowMap exato" |
+| 1-step por design | Sim (treino forçado) | Sim (por simetria da OT path) |
+| Velocidade (1000 amostras) | ~7s | ~7s |
+
+**FlowMap é mais simples de implementar** — a loss é apenas MSE entre posições na trajetória. MeanFlow requer a correção JVP, que envolve diferenciação automática de segunda ordem. Na prática, ambos têm performance similar para precipitação.
+
+---
+
+## 11. compare.py — A Pipeline de Comparação
 
 ### O que este arquivo faz?
 
@@ -2996,9 +4186,9 @@ python compare.py --max_epochs 50
 
 ---
 
-## 10. Exemplos de Uso Completos
+## 12. Exemplos de Uso Completos
 
-### 10.1 Treinar um Modelo do Zero
+### 12.1 Treinar um Modelo do Zero
 
 ```bash
 cd PrecipModels/
@@ -3036,7 +4226,7 @@ Saídas em `outputs/<nome_modelo>/`:
 - `training_loss.png` — curva de perda
 - `training_history.json` — histórico completo
 
-### 10.2 Comparar Todos os Modelos
+### 12.2 Comparar Todos os Modelos
 
 ```bash
 # Treina todos e compara
@@ -3055,7 +4245,7 @@ Saídas em `outputs/comparison/`:
 - `radar.png` — spider plot
 - `comparison_report.txt` — tabela texto
 
-### 10.3 Carregar e Usar um Modelo Treinado
+### 12.3 Carregar e Usar um Modelo Treinado
 
 ```python
 import torch
@@ -3102,7 +4292,7 @@ with open("outputs/vae/config.json") as f:
 # mu e std do treino seriam necessários para denormalizar corretamente
 ```
 
-### 10.4 Adicionar um Novo Modelo ao Framework
+### 12.4 Adicionar um Novo Modelo ao Framework
 
 Para adicionar um novo modelo, você precisa:
 
@@ -3178,7 +4368,7 @@ python train.py --model meu_modelo
 python compare.py --models meu_modelo hurdle_simple copula
 ```
 
-### 10.5 Interpretar as Saídas do Training
+### 12.5 Interpretar as Saídas do Training
 
 ```json
 {
@@ -3211,7 +4401,7 @@ python compare.py --models meu_modelo hurdle_simple copula
 
 ---
 
-## 11. Resultados e Conclusões
+## 13. Resultados e Conclusões
 
 ### Tabela Completa de Resultados
 
@@ -3258,27 +4448,35 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 | Termo | Definição |
 |-------|-----------|
 | **ActNorm** | Normalização de ativação aprendida por canal — inicializada como BatchNorm mas determinística na inferência (usada no GLOW) |
+| **AR (Autoregressive)** | Modelo onde a geração do passo atual é condicionada nos passos anteriores: `p(y_t | y_{t-W:t-1})`. Captura dependências temporais que modelos i.i.d. ignoram. |
 | **Batch** | Subconjunto dos dados processado em cada passo de gradiente |
 | **BCE** | Binary Cross-Entropy — loss para classificação binária |
 | **Conditioning** | Injetar informação extra (ex: mês do ano) nos modelos para gerar amostras específicas para aquela condição |
 | **CVAE** | Conditional VAE — VAE que recebe uma variável de condição no encoder e decoder, aprendendo `p(x|c)` |
 | **DDIM** | Denoising Diffusion Implicit Models — amostragem determinística para DDPM |
 | **DDPM** | Denoising Diffusion Probabilistic Models — modelo de difusão |
+| **Day-of-Year (DoY)** | Número do dia no ano (1–366). Usado como condicionamento sazonal contínuo via sin/cos: `(sin(2π·doy/365.25), cos(2π·doy/365.25))` |
 | **ELBO** | Evidence Lower Bound — objetivo variacional do VAE |
 | **EMA** | Exponential Moving Average — média ponderada exponencial dos parâmetros |
 | **FiLM** | Feature-wise Linear Modulation — modulação de ativações via escala e translação aprendidas de uma condição externa (`h * (1 + scale) + shift`) |
+| **Flow Map** | Operador do fluxo `Φ(z_s, s, t)` que prevê a posição `z_t` dado que o processo está em `z_s` no tempo `s`. Aprende o operador de integração diretamente, sem precisar de velocidades. (arXiv 2505.18825) |
 | **GLOW** | Generative Flow with Invertible 1×1 Convolutions — fluxo normalizante com ActNorm + mistura completa de dimensões (InvertibleLinear) + acoplamento afim |
 | **GRU** | Gated Recurrent Unit — rede neural recorrente com gates |
 | **Hurdle Model** | Modelo com dois estágios: ocorrência (binária) + quantidade (contínua) |
+| **JVP (Jacobian-Vector Product)** | Derivada direcional de uma função: `JVP(f, x, v) = (∂f/∂x) · v`. No MeanFlow, mede como a velocidade muda ao se mover na direção do fluxo — usado para a correção da velocidade média. |
 | **KL Divergence** | Kullback-Leibler — medida de diferença entre distribuições |
 | **Latente** | Representação comprimida dos dados em dimensão menor |
+| **MeanFlow Identity** | Identidade matemática do algoritmo MeanFlow: a velocidade média `u(z_t, r, t)` de `r` a `t` iguala a esperança da velocidade instantânea ao longo do trecho. Permite geração precisa em 1 passo. (arXiv 2505.13447) |
 | **NLL** | Negative Log-Likelihood — negativo da log-probabilidade dos dados |
 | **nn.Embedding** | Tabela de lookup do PyTorch: mapeia inteiros (categorias) para vetores reais aprendidos |
 | **Normal-Score** | Transformação de ranque para scores gaussianos |
 | **ODE** | Equação Diferencial Ordinária — equação de evolução temporal |
+| **Rollout** | Geração autoregressiva autônoma: cada dia gerado é inserido na janela histórica para gerar o próximo, sem usar dados reais do futuro |
 | **Softplus** | `log(1+exp(x))` — alternativa suave ao ReLU, sempre positivo |
+| **Teacher Forcing** | Técnica de treino para modelos AR: a janela histórica é sempre preenchida com dados reais, mesmo que o modelo já tenha gerado predições anteriores. Acelera a convergência mas cria discrepância com a geração autônoma. |
+| **Threshold Transform (Sentinel)** | Transformação `y = where(x>0, log1p(x), -1.0)` — mapeia todos os dias (secos e chuvosos) para um único espaço contínuo, com `-1.0` como sentinel para dias secos |
 | **Wasserstein** | Distância de transporte ótimo entre distribuições |
 
 ---
 
-*Documento gerado em 03/03/2026 — Framework PrecipModels v1.1 (inclui modelos _mc e variantes adicionais)*
+*Documento gerado em 03/03/2026 — Framework PrecipModels v1.2 (inclui modelos _mc restantes, thresholded e AR autoregressivos)*

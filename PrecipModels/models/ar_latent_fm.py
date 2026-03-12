@@ -102,6 +102,7 @@ class ARLatentFM(BaseModel):
         n_layers: int = 4,
         t_embed_dim: int = 64,
         n_sample_steps: int = 50,
+        free_bits: float = 0.5,
         **kwargs,
     ):
         """
@@ -114,6 +115,7 @@ class ARLatentFM(BaseModel):
             n_layers:       depth of velocity MLP
             t_embed_dim:    sinusoidal time embedding dimension (T)
             n_sample_steps: Euler integration steps during generation
+            free_bits:      minimum KL per latent dim (prevents collapse)
         """
         super().__init__()
         self.n_stations     = input_size
@@ -121,6 +123,7 @@ class ARLatentFM(BaseModel):
         self.gru_hidden     = gru_hidden
         self.latent_size    = latent_size
         self.n_sample_steps = n_sample_steps
+        self.free_bits      = free_bits
         self.cond_block     = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim       = self.cond_block.total_dim
 
@@ -255,8 +258,9 @@ class ARLatentFM(BaseModel):
         z              = self._reparameterize(mu, logvar)     # (B, L)
         y_hat          = self._decode(z, h, cond_emb)         # (B, S)
 
-        mse_recon = F.mse_loss(y_hat, target)
-        kl        = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+        mse_recon  = F.mse_loss(y_hat, target)
+        kl_per_dim = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())   # (B, L)
+        kl         = torch.clamp(kl_per_dim, min=self.free_bits).mean()
 
         # ── Flow matching in latent space ─────────────────────────────────────
         # Detach z so flow gradients don't propagate into VAE encoder
@@ -302,7 +306,10 @@ class ARLatentFM(BaseModel):
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
 
         samples = []
+        log_every = max(1, n // 4)
         for i in range(n):
+            if i > 0 and i % log_every == 0:
+                print(f"  [ar_latent_fm] sampling step {i}/{n}...", flush=True)
             doy = (start_doy + i - 1) % 365 + 1
             cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)

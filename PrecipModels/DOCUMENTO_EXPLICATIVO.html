@@ -181,11 +181,37 @@
 <li><a href="#85-glow_mcpy--glowmc">8.5 glow_mc.py — GlowMC</a></li>
 <li><a href="#86-flow_match_mcpy--flowmatchingmc">8.6 flow_match_mc.py — FlowMatchingMC</a></li>
 <li><a href="#87-flow_match_film_mcpy--flowmatchingfilmmc">8.7 flow_match_film_mc.py — FlowMatchingFilmMC</a></li>
+<li><a href="#88-latent_fm_mcpy--latentflowmc">8.8 latent_fm_mc.py — LatentFlowMc</a></li>
+<li><a href="#89-hurdle_latent_fm_mcpy--hurdlelatentflowmc">8.9 hurdle_latent_fm_mc.py — HurdleLatentFlowMc</a></li>
+<li><a href="#810-hurdle_vae_cond_mcpy--hurdlevaecondmc">8.10 hurdle_vae_cond_mc.py — HurdleVAECondMc</a></li>
 </ul>
 </li>
-<li><a href="#9-comparepy--a-pipeline-de-compara%C3%A7%C3%A3o">compare.py — Pipeline de Comparação</a></li>
-<li><a href="#10-exemplos-de-uso-completos">Exemplos de Uso Completos</a></li>
-<li><a href="#11-resultados-e-conclus%C3%B5es">Resultados e Conclusões</a></li>
+<li><a href="#9-modelos-thresholded">Modelos Thresholded</a>
+<ul>
+<li><a href="#90-conceito-transforma%C3%A7%C3%A3o-sentinel--10">9.0 Conceito: Transformação Sentinel -1.0</a></li>
+<li><a href="#91-thresholded_vae_mcpy--thresholdedvaemc">9.1 thresholded_vae_mc.py — ThresholdedVAEMc</a></li>
+<li><a href="#92-thresholded_real_nvp_mcpy--thresholdedrealnvpmc">9.2 thresholded_real_nvp_mc.py — ThresholdedRealNVPMc</a></li>
+<li><a href="#93-thresholded_glow_mcpy--thresholdedglowmc">9.3 thresholded_glow_mc.py — ThresholdedGlowMc</a></li>
+<li><a href="#94-thresholded_latent_flow_mcpy--thresholdedlatentflowmc">9.4 thresholded_latent_flow_mc.py — ThresholdedLatentFlowMc</a></li>
+</ul>
+</li>
+<li><a href="#10-modelos-autoregressivos-ar">Modelos Autoregressivos (AR)</a>
+<ul>
+<li><a href="#100-por-que-modelos-autoregressivos">10.0 Por que modelos AR?</a></li>
+<li><a href="#101-datasetspy--temporaldataset">10.1 datasets.py — TemporalDataset</a></li>
+<li><a href="#102-generate_scenariospy--rollout-ar">10.2 generate_scenarios.py — Rollout AR</a></li>
+<li><a href="#103-ar_vaepy--arvae">10.3 ar_vae.py — ARVAE</a></li>
+<li><a href="#104-ar_flow_matchpy--arflowmatch">10.4 ar_flow_match.py — ARFlowMatch</a></li>
+<li><a href="#105-ar_latent_fmpy--arlatentfm">10.5 ar_latent_fm.py — ARLatentFM</a></li>
+<li><a href="#106-ar_real_nvppy--arrealnvp--lstm">10.6 ar_real_nvp.py — ARRealNVP (+ LSTM)</a></li>
+<li><a href="#107-ar_glowpy--arglow--lstm">10.7 ar_glow.py — ARGlow (+ LSTM)</a></li>
+<li><a href="#108-ar_mean_flowpy--armeanflow">10.8 ar_mean_flow.py — ARMeanFlow</a></li>
+<li><a href="#109-ar_flow_mappy--arflowmap">10.9 ar_flow_map.py — ARFlowMap</a></li>
+</ul>
+</li>
+<li><a href="#11-comparepy--a-pipeline-de-compara%C3%A7%C3%A3o">compare.py — Pipeline de Comparação</a></li>
+<li><a href="#12-exemplos-de-uso-completos">Exemplos de Uso Completos</a></li>
+<li><a href="#13-resultados-e-conclus%C3%B5es">Resultados e Conclusões</a></li>
 </ol>
 <hr>
 <h2 id="1-introdução-geral">1. Introdução Geral</h2>
@@ -2629,7 +2655,1061 @@ python train.py --model flow_match_film_mc
 <span class="hljs-comment"># etc.</span>
 </code></pre>
 <hr>
-<h2 id="9-comparepy--a-pipeline-de-comparação">9. <a href="http://compare.py">compare.py</a> — A Pipeline de Comparação</h2>
+<hr>
+<h3 id="88-latent_fm_mcpy--latentflowmc">8.8 latent_fm_mc.py — LatentFlowMc</h3>
+<p><strong>Base:</strong> <code>latent_flow.py</code> + <code>conditioning.py</code></p>
+<p><strong>Pergunta:</strong> E se combinarmos dois estágios — um VAE para comprimir os dados e um Flow Matching no espaço latente — com condicionamento mensal em ambos?</p>
+<h4 id="visão-geral-dois-estágios">Visão Geral: Dois Estágios</h4>
+<p>O <code>LatentFlowMc</code> é o modelo _mc mais sofisticado da família. Usa uma arquitetura em dois estágios separados:</p>
+<pre><code>Estágio 1 — CVAE (treinado primeiro):
+    x ──cat──► [x, c_emb] ──► Encoder ──► (mu, logvar)
+                                               │ reparametrize
+                                               z  (espaço latente)
+                                               │
+               [z, c_emb] ──► Decoder ──► x_hat
+
+Estágio 2 — Flow Matching no espaço latente (VAE congelado):
+    z₀ ~ N(0,I)
+    z₁ = mu (encoder sem ruído) — target mais limpo
+    z_t = (1-t)·z₀ + t·z₁
+    LatentFlowNet: v_θ(z_t, t_emb, c_emb) → velocidade em L
+    → ODE integra z₀ → z₁ → decoder → x
+</code></pre>
+<p><strong>Filosofia:</strong> O VAE aprende a comprimir. O Flow Matching aprende a navegar no espaço comprimido. Cada estágio tem sua tarefa isolada, o que estabiliza o treino.</p>
+<h4 id="conditioningblock-em-ambos-os-estágios">ConditioningBlock em Ambos os Estágios</h4>
+<p>O <code>ConditioningBlock</code> produz <code>c_emb</code> (vetor de 6 dimensões: embedding de mês + sin/cos do dia do ano). Esse vetor é injetado:</p>
+<ol>
+<li><strong>No encoder CVAE:</strong> <code>[x ‖ c_emb]</code> → o encoder &quot;sabe&quot; em qual mês está ao comprimir</li>
+<li><strong>No decoder CVAE:</strong> <code>[z ‖ c_emb]</code> → o decoder usa o mês para reconstruir corretamente</li>
+<li><strong>Na LatentFlowNet via FiLM:</strong> cada <code>_FlowResBlock</code> recebe o mês como condição de modulação</li>
+</ol>
+<h4 id="film-na-rede-de-velocidade-latente">FiLM na Rede de Velocidade Latente</h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">_FlowResBlock</span>(nn.Module):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, hidden_dim, cond_dim</span>):
+        self.norm    = LayerNorm(hidden_dim)
+        self.linear1 = Linear(hidden_dim, hidden_dim * <span class="hljs-number">2</span>)
+        self.linear2 = Linear(hidden_dim * <span class="hljs-number">2</span>, hidden_dim)
+        self.film    = _FiLM(hidden_dim, cond_dim)   <span class="hljs-comment"># gera scale e shift</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, h, cond</span>):
+        <span class="hljs-comment"># cond = cat([t_emb, c_emb]) — tempo + mês juntos</span>
+        h_norm = self.norm(h)
+        h2 = SiLU(self.linear1(h_norm))
+        h2 = self.linear2(h2)
+        h2 = self.film(h2, cond)   <span class="hljs-comment"># modula com tempo+mês</span>
+        <span class="hljs-keyword">return</span> h + h2              <span class="hljs-comment"># conexão residual</span>
+</code></pre>
+<p>O <code>_FiLM</code> gera <code>(scale, shift) = Linear(cond)</code>, e aplica: <code>h_film = scale * h2 + shift</code>. Isso permite que o modelo ajuste a velocidade de acordo com o mês <strong>a cada camada</strong> da rede de velocidade.</p>
+<h4 id="set_stagevae-vs-set_stageflow"><code>set_stage(&quot;vae&quot;)</code> vs <code>set_stage(&quot;flow&quot;)</code></h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">set_stage</span>(<span class="hljs-params">self, stage: <span class="hljs-built_in">str</span></span>):
+    <span class="hljs-keyword">if</span> stage == <span class="hljs-string">&quot;vae&quot;</span>:
+        <span class="hljs-comment"># Descongela: encoder, decoder, fc_mu, fc_logvar</span>
+        <span class="hljs-comment"># Congela:    flow_net, t_embed</span>
+    <span class="hljs-keyword">elif</span> stage == <span class="hljs-string">&quot;flow&quot;</span>:
+        <span class="hljs-comment"># Congela:    encoder, decoder, fc_mu, fc_logvar</span>
+        <span class="hljs-comment"># Descongela: flow_net, t_embed</span>
+</code></pre>
+<p>Durante o estágio <code>&quot;flow&quot;</code>, o encoder ainda é usado para gerar os targets <code>z₁ = mu(x)</code> — mas seus parâmetros estão congelados (não recebem gradientes do flow). Isso garante que o Flow Matching aprenda a replicar a distribuição do VAE, e não a deformá-la.</p>
+<h4 id="treinamento-em-dois-passos">Treinamento em Dois Passos</h4>
+<pre><code class="language-bash"><span class="hljs-comment"># Estágio 1: treina VAE com KL annealing</span>
+python train.py --model latent_fm_mc --max_epochs 500 --kl_warmup 200 --latent_size 64
+
+<span class="hljs-comment"># Estágio 2: treina flow no latente (VAE congelado automaticamente)</span>
+<span class="hljs-comment"># train.py detecta flow_epochs &gt; 0 e faz set_stage(&quot;flow&quot;) + segundo loop</span>
+</code></pre>
+<h4 id="faq-7">FAQ</h4>
+<p><strong>P: Por que usar <code>mu</code> (sem ruído) como target do flow, em vez de <code>z = mu + epsilon * std</code>?</strong>
+R: Usando <code>z₁ = mu</code> o target é <strong>determinístico</strong> para cada dado de entrada — isso torna os targets do flow mais limpos e estáveis. Com <code>z₁ = z</code>, o target variaria a cada passo de treino (pois <code>epsilon</code> muda), tornando o aprendizado ruidoso.</p>
+<p><strong>P: O modelo precisa de dois arquivos de saída?</strong>
+R: Não. O <code>model.pt</code> salva todos os parâmetros (VAE + flow + embeddings) em um único checkpoint. O <code>set_stage</code> apenas controla quais parâmetros recebem gradientes durante o treino.</p>
+<hr>
+<h3 id="89-hurdle_latent_fm_mcpy--hurdlelatentflowmc">8.9 hurdle_latent_fm_mc.py — HurdleLatentFlowMc</h3>
+<p><strong>Base:</strong> <code>hurdle_vae_cond.py</code> + <code>latent_fm_mc.py</code> + <code>conditioning.py</code></p>
+<p><strong>Pergunta:</strong> E se combinarmos hurdle (modelagem explícita de ocorrência vs. quantidade) com a arquitetura de dois estágios do <code>latent_fm_mc</code>?</p>
+<h4 id="visão-geral-três-módulos">Visão Geral: Três Módulos</h4>
+<pre><code>OccVAE (ocorrência):
+    x_bin = (x &gt; 0).float()                    — dias com chuva (1) ou secos (0)
+    Encoder: [x_bin ‖ c_emb] → z_occ → logits
+    Decoder: z_occ → logits de ocorrência
+    Loss:    40·BCE + β·KL_occ
+
+AmtVAE (quantidade):
+    x_log  = log1p(x) * (x &gt; 0).float()        — log da precipitação (0 em dias secos)
+    Encoder: [x_log ‖ occ_mask ‖ c_emb] → z_amt
+    Decoder: [z_amt ‖ c_emb] → x_log_hat
+    Loss:    MSE_wet + β·KL_amt                 — MSE apenas nos dias chuvosos
+
+FlowNet (no espaço latente de amt):
+    z_t = (1-t)·z₀ + t·z_amt_target
+    v_θ(z_t, t_emb, c_emb com FiLM) → velocidade latente
+</code></pre>
+<p><strong>Interação ocorrência-quantidade:</strong> O <code>AmtVAE</code> recebe <code>[x_log ‖ occ_mask ‖ c_emb]</code> como entrada — ou seja, o encoder de quantidade &quot;sabe&quot; quais estações choveram naquele dia. Isso permite que ele aprenda que, quando há muitas estações com chuva (frente fria, evento grande), as quantidades tendem a ser maiores e mais correlacionadas.</p>
+<h4 id="loss-do-estágio-1-vae">Loss do Estágio 1 (VAE)</h4>
+<pre><code class="language-python"><span class="hljs-comment"># BCE para ocorrência (sem mask — todos os dias importam)</span>
+bce_loss = BCE(logits_occ, x_bin)      <span class="hljs-comment"># logits_occ: previsão do OccVAE</span>
+loss_occ = <span class="hljs-number">40.0</span> * bce_loss + beta * (<span class="hljs-number">100</span> * kl_occ + kl_amt)
+
+<span class="hljs-comment"># MSE para quantidade (apenas dias chuvosos)</span>
+wet_mask = (x &gt; <span class="hljs-number">0</span>).<span class="hljs-built_in">float</span>()
+mse_wet  = MSE(x_log_hat * wet_mask, x_log * wet_mask)
+loss_amt = mse_wet
+
+total_stage1 = loss_occ + loss_amt
+</code></pre>
+<p>Por que <code>40·BCE</code>? A escala 40 foi encontrada empiricamente para balancear as losses de ocorrência (BCE, escala ~0.6) e quantidade (MSE, escala ~0.01). Sem isso, o modelo ignora a ocorrência por ser &quot;barata&quot;.</p>
+<p>Por que <code>100·KL_occ</code>? O <code>KL_occ</code> tende a ser pequeno (o espaço binário de ocorrência é simples), então o fator 100 o torna relevante no balanço total.</p>
+<h4 id="amostragem">Amostragem</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">sample</span>(<span class="hljs-params">self, n, cond=<span class="hljs-literal">None</span></span>):
+    c_emb = cond_block(cond)
+
+    <span class="hljs-comment"># 1. Gerar máscara de ocorrência via OccVAE</span>
+    z_occ  = N(<span class="hljs-number">0</span>, I)
+    logits = occ_vae.decode(z_occ, c_emb)
+    occ_mask = Bernoulli(sigmoid(logits)).sample()   <span class="hljs-comment"># 0 ou 1 por estação</span>
+
+    <span class="hljs-comment"># 2. ODE no espaço latente de amount (flow)</span>
+    z_t = N(<span class="hljs-number">0</span>, I)  [no espaço latente L]
+    <span class="hljs-keyword">for</span> t <span class="hljs-keyword">in</span> Euler(<span class="hljs-number">0</span> → <span class="hljs-number">1</span>):
+        z_t += v_θ(z_t, t_emb, c_emb) * dt
+    <span class="hljs-comment"># z_t ≈ z_amt ~ distribuição aprendida pelo AmtVAE</span>
+
+    <span class="hljs-comment"># 3. Decodificar quantidade + aplicar máscara</span>
+    x_log_hat = amt_vae.decode(z_t, c_emb)
+    x_amt     = expm1(ReLU(x_log_hat))    <span class="hljs-comment"># ReLU→0 para valores ≤ 0, expm1 desfaz log1p</span>
+    <span class="hljs-keyword">return</span> x_amt * occ_mask               <span class="hljs-comment"># 0 onde seco, quantidade onde chove</span>
+</code></pre>
+<p><strong>Detalhe:</strong> <code>expm1(ReLU(y))</code> em vez de <code>expm1(y)</code> garante não-negatividade. O <code>ReLU</code> mapeia qualquer predição ≤ 0 para 0 (dia seco implícito); o <code>expm1</code> converte valores positivos do espaço <code>log1p</code> de volta para mm/dia.</p>
+<h4 id="comparação-com-hurdlevaecond">Comparação com HurdleVAECond</h4>
+<table>
+<thead>
+<tr>
+<th>Aspecto</th>
+<th><code>hurdle_vae_cond</code></th>
+<th><code>hurdle_latent_fm_mc</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quantidade: geração</td>
+<td>Decoder direto <code>z → x</code></td>
+<td>ODE no espaço latente</td>
+</tr>
+<tr>
+<td>Estágios de treino</td>
+<td>1 (simultâneo)</td>
+<td>2 (VAE → Flow)</td>
+</tr>
+<tr>
+<td>Condicionamento</td>
+<td>ConditioningBlock</td>
+<td>ConditioningBlock + FiLM no flow</td>
+</tr>
+<tr>
+<td>Velocidade de geração</td>
+<td>Rápida (1 forward pass)</td>
+<td>Média (N passos Euler)</td>
+</tr>
+<tr>
+<td>Complexidade</td>
+<td>Média</td>
+<td>Alta</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="810-hurdle_vae_cond_mcpy--hurdlevaecondmc">8.10 hurdle_vae_cond_mc.py — HurdleVAECondMc</h3>
+<p><strong>Base:</strong> <code>hurdle_vae_cond.py</code> + <code>conditioning.py</code></p>
+<p><strong>Pergunta:</strong> E se pegarmos o <code>hurdle_vae_cond</code> e simplesmente adicionarmos condicionamento mensal, sem a complexidade do flow em dois estágios?</p>
+<h4 id="arquitetura-simplificada">Arquitetura Simplificada</h4>
+<pre><code>HurdleVAECondMc:
+    OccVAE + AmtVAE treinados simultaneamente (sem estágios)
+    Ambos condicionados no mês via ConditioningBlock
+
+    OccVAE:
+        Encoder: [x_bin ‖ c_emb] → (mu_occ, logvar_occ)
+        Decoder: [z_occ ‖ c_emb] → logits
+        Loss:    BCE + β·KL_occ
+
+    AmtVAE (_ConditionalMiniVAE):
+        Encoder: [x_log ‖ occ_mask ‖ c_emb] → (mu_amt, logvar_amt)
+        Decoder: [z_amt ‖ occ_mask ‖ c_emb] → x_log_hat
+        Loss:    MSE_wet + β·KL_amt
+</code></pre>
+<p><strong>Diferença-chave vs <code>hurdle_latent_fm_mc</code>:</strong> Não há <code>FlowNet</code>. A geração de quantidades usa diretamente <code>z_amt → decoder</code>, sem ODE. Isso torna o modelo mais leve e o treino mais simples (sem troca de estágios, sem freeze de parâmetros).</p>
+<h4 id="_conditionalminivae-com-c_emb"><code>_ConditionalMiniVAE</code> com <code>c_emb</code></h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">_ConditionalMiniVAE</span>(nn.Module):
+    <span class="hljs-string">&quot;&quot;&quot;
+    CVAE: encoder e decoder recebem (cond_size) extra como condição.
+    &quot;&quot;&quot;</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, input_size, cond_size, latent_size</span>):
+        <span class="hljs-comment"># cond_size = occ_size + c_emb_dim (máscara de ocorrência + mês)</span>
+
+        enc_in = input_size + cond_size
+        self.encoder = MLP(enc_in → h → h)
+        self.fc_mu, self.fc_logvar = ...
+
+        dec_in = latent_size + cond_size
+        self.decoder = MLP(dec_in → h → h → input_size)
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">encode</span>(<span class="hljs-params">self, x, c</span>):        <span class="hljs-keyword">return</span> fc_mu(encoder(cat([x, c]))), ...
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">decode</span>(<span class="hljs-params">self, z, c</span>):        <span class="hljs-keyword">return</span> decoder(cat([z, c]))
+</code></pre>
+<p>No <code>HurdleVAECondMc</code>, <code>c</code> para o <code>AmtVAE</code> é <code>cat([occ_mask, c_emb])</code> — ou seja, a condição é tanto a máscara de ocorrência quanto o mês. O <code>occ_mask</code> permite que o decodificador de quantidade saiba exatamente quais estações devem ter chuva, gerando valores coerentes.</p>
+<h4 id="loss-única-sem-estágios">Loss Única (sem estágios)</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">loss</span>(<span class="hljs-params">self, x, beta=<span class="hljs-number">1.0</span>, cond=<span class="hljs-literal">None</span></span>):
+    c_emb = cond_block(cond)
+
+    <span class="hljs-comment"># Ocorrência</span>
+    x_bin  = (x &gt; <span class="hljs-number">0</span>).<span class="hljs-built_in">float</span>()
+    occ_cond = cat([x_bin, c_emb])
+    recon_occ, mu_occ, logvar_occ = occ_vae(x_bin, occ_cond)
+    bce   = BCE(recon_occ, x_bin)
+    kl_o  = KL(mu_occ, logvar_occ)
+
+    <span class="hljs-comment"># Quantidade</span>
+    x_log  = log1p(x) * (x &gt; <span class="hljs-number">0</span>).<span class="hljs-built_in">float</span>()
+    amt_cond = cat([x_bin, c_emb])    <span class="hljs-comment"># usa máscara real (teacher forcing)</span>
+    recon_amt, mu_amt, logvar_amt = amt_vae(x_log, amt_cond)
+    wet_mask = (x &gt; <span class="hljs-number">0</span>).<span class="hljs-built_in">float</span>()
+    mse_wet  = MSE(recon_amt * wet_mask, x_log * wet_mask)
+    kl_a     = KL(mu_amt, logvar_amt)
+
+    <span class="hljs-keyword">return</span> bce + mse_wet + beta * (kl_o + kl_a)
+</code></pre>
+<h4 id="diagrama-comparativo-dos-três-hurdle-_mc">Diagrama Comparativo dos Três Hurdle _mc</h4>
+<pre><code>hurdle_vae_cond_mc      hurdle_latent_fm_mc     hurdle_simple_mc
+─────────────────────   ─────────────────────   ─────────────────
+[Occ VAE + Amt VAE]     [Occ VAE + Amt VAE      [MLP direto +
+ sem flow                + FlowNet no latente]    Log-Normal]
+ 1 estágio               2 estágios               sem VAE
+ mais leve               mais complexo            mais interpretável
+</code></pre>
+<h4 id="faq-8">FAQ</h4>
+<p><strong>P: Por que <code>HurdleVAECondMc</code> em vez de simplesmente usar <code>hurdle_simple_mc</code>?</strong>
+R: O <code>hurdle_simple_mc</code> emite <code>(mu, sigma)</code> Log-Normal diretamente — mais rígido. O <code>HurdleVAECondMc</code> usa um espaço latente intermediário, permitindo que a distribuição gerada seja mais flexível do que uma Log-Normal pura. Útil quando os dados têm modos múltiplos (dias de chuva leve vs. eventos intensos).</p>
+<p><strong>P: Qual o impacto do <code>c_emb</code> no <code>AmtVAE</code>?</strong>
+R: O mês ajuda a capturar a sazonalidade das quantidades — verão tende a ter chuvas convectivas intensas e localizadas, enquanto inverno tem chuvas mais suaves e distribuídas. Com <code>c_emb</code>, o decoder sabe quando esperar cada regime.</p>
+<hr>
+<h2 id="9-modelos-thresholded">9. Modelos Thresholded</h2>
+<h3 id="90-conceito-transformação-sentinel--10">9.0 Conceito: Transformação Sentinel -1.0</h3>
+<h4 id="o-problema-como-tratar-os-zeros">O Problema: Como Tratar os Zeros?</h4>
+<p>Todos os modelos vistos até agora lidam com zeros na precipitação de duas formas:</p>
+<ol>
+<li><strong>Hurdle model:</strong> dois modelos separados — um para ocorrência (é zero ou não?) e um para a quantidade (quanto?)</li>
+<li><strong>Modelos de quantidade apenas:</strong> normalização que afasta os zeros, ou clipping pós-geração</li>
+</ol>
+<p>Os modelos <code>thresholded</code> propõem uma <strong>terceira abordagem</strong>: transformar todos os dias em um único espaço contínuo, onde dias secos têm um valor especial (sentinel) e dias chuvosos têm valores positivos.</p>
+<h4 id="a-transformação">A Transformação</h4>
+<pre><code class="language-python"><span class="hljs-comment"># Treino — entrada para o modelo:</span>
+y_target = where(x &gt; <span class="hljs-number">0</span>, log1p(x), -<span class="hljs-number">1.0</span>)
+
+<span class="hljs-comment"># Se chove:  y_target = log1p(x)  — espaço logarítmico, valores &gt; 0</span>
+<span class="hljs-comment"># Se seco:   y_target = -1.0      — valor sentinel fixo (abaixo de zero)</span>
+</code></pre>
+<pre><code class="language-python"><span class="hljs-comment"># Geração — converter a saída do modelo de volta para mm/dia:</span>
+x_gerado = expm1(ReLU(y_pred))
+
+<span class="hljs-comment"># ReLU(y_pred):</span>
+<span class="hljs-comment">#   se y_pred ≤ 0: ReLU = 0 → x = expm1(0) - 1... espera</span>
+<span class="hljs-comment"># Mais exato:</span>
+x_gerado = expm1(ReLU(y_pred))
+<span class="hljs-comment"># ReLU(y) &gt; 0 → expm1(y) &gt; 0  (mm/dia)</span>
+<span class="hljs-comment"># ReLU(y) = 0 → expm1(0) = 0  (dia seco, CORRETO)</span>
+</code></pre>
+<p><strong>Diagrama da transformação:</strong></p>
+<pre><code>Espaço original (mm/dia):     Espaço transformado:
+  0.0 (seco)           →         -1.0  (sentinel)
+  0.5 mm               →          0.405 (= log1p(0.5))
+  5.0 mm               →          1.792 (= log1p(5))
+ 50.0 mm               →          3.932 (= log1p(50))
+
+Decodificação com ReLU + expm1:
+  y_pred = -1.5  →  ReLU = 0   → expm1(0) = 0.0  → seco ✓
+  y_pred = -0.2  →  ReLU = 0   → expm1(0) = 0.0  → seco ✓
+  y_pred =  1.5  →  ReLU = 1.5 → expm1(1.5) ≈ 3.5 mm ✓
+  y_pred =  3.9  →  ReLU = 3.9 → expm1(3.9) ≈ 49 mm  ✓
+</code></pre>
+<h4 id="por-que--10">Por que -1.0?</h4>
+<p>O valor <code>-1.0</code> foi escolhido porque:</p>
+<ul>
+<li>É facilmente distinguível dos valores de chuva (<code>log1p(x) ≥ 0</code> para <code>x ≥ 0</code>)</li>
+<li>Está a 1 unidade abaixo do limiar, criando uma &quot;fronteira suave&quot; de separação</li>
+<li>Não é <code>-∞</code> (como seria <code>log(0)</code>), então é numericamente tratável</li>
+<li>O modelo precisa aprender a &quot;empurrar&quot; predições para abaixo de 0 em dias secos — isso é uma tarefa de regressão bem definida</li>
+</ul>
+<p><strong>Analogia:</strong> É como codificar ausência em uma régua de logaritmos. Você marca os dias chuvosos na régua (posições 0 a 4) e os dias secos no &quot;chão abaixo da régua&quot; (posição -1). O modelo aprende onde colocar cada dia.</p>
+<h4 id="vantagem-vs-desvantagem-em-relação-ao-hurdle">Vantagem vs. Desvantagem em relação ao Hurdle</h4>
+<table>
+<thead>
+<tr>
+<th>Aspecto</th>
+<th>Hurdle</th>
+<th>Threshold</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Número de modelos</td>
+<td>2 (ocorrência + quantidade)</td>
+<td>1 (único)</td>
+</tr>
+<tr>
+<td>Modelagem de zeros</td>
+<td>Explícita (Bernoulli)</td>
+<td>Implícita (regressão abaixo de 0)</td>
+</tr>
+<tr>
+<td>Número de parâmetros</td>
+<td>~2×</td>
+<td>~1×</td>
+</tr>
+<tr>
+<td>Risco</td>
+<td>Modelo de ocorrência mal calibrado</td>
+<td>Modelo pode &quot;vazar&quot; → zeros incorretos</td>
+</tr>
+<tr>
+<td>Treino</td>
+<td>Mais complexo (dois módulos)</td>
+<td>Mais simples (único objetivo MSE/NLL)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="91-thresholded_vae_mcpy--thresholdedvaemc">9.1 thresholded_vae_mc.py — ThresholdedVAEMc</h3>
+<p><strong>Arquitetura:</strong> VAE padrão no espaço transformado, com condicionamento mensal via <code>ConditioningBlock</code>.</p>
+<h4 id="forward-pass">Forward Pass</h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">ThresholdedVAEMc</span>(<span class="hljs-title class_ inherited__">BaseModel</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, input_size=<span class="hljs-number">15</span>, latent_size=<span class="hljs-number">128</span>, n_layers=<span class="hljs-number">3</span></span>):
+        E = cond_block.total_dim   <span class="hljs-comment"># 6 (mês + sin/cos)</span>
+        h_dim = <span class="hljs-built_in">max</span>(latent_size*<span class="hljs-number">2</span>, input_size*<span class="hljs-number">2</span>)
+
+        <span class="hljs-comment"># Encoder: [y_target(15) ‖ c_emb(6)] → (mu, logvar)</span>
+        self.encoder = MLP(input_size + E → h_dim × n_layers)
+        self.fc_mu, self.fc_logvar = Linear(h_dim, latent_size)
+
+        <span class="hljs-comment"># Decoder: [z(128) ‖ c_emb(6)] → y_pred(15)   SEM ativação final</span>
+        self.decoder = MLP(latent_size + E → h_dim × n_layers → input_size)
+</code></pre>
+<p><strong>Importante:</strong> o decoder não tem ativação final (nem <code>ReLU</code>, nem <code>sigmoid</code>). A saída está no espaço transformado — pode ser negativa (dia seco previsto) ou positiva (dia chuvoso previsto). A conversão para mm/dia acontece fora, em <code>sample()</code>.</p>
+<h4 id="loss">Loss</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">loss</span>(<span class="hljs-params">self, x, beta=<span class="hljs-number">1.0</span>, cond=<span class="hljs-literal">None</span></span>):
+    y = threshold_transform(x)   <span class="hljs-comment"># where(x &gt; 0, log1p(x), -1.0)</span>
+    c_emb = cond_block(cond)
+
+    <span class="hljs-comment"># Encoder</span>
+    inp = cat([y, c_emb], dim=-<span class="hljs-number">1</span>)
+    mu, logvar = encoder(inp)
+    z = reparameterize(mu, logvar)
+
+    <span class="hljs-comment"># Decoder</span>
+    y_hat = decoder(cat([z, c_emb], dim=-<span class="hljs-number">1</span>))  <span class="hljs-comment"># saída no espaço transformado</span>
+
+    mse = MSE(y_hat, y)       <span class="hljs-comment"># MSE no espaço transformado</span>
+    kl  = KL(mu, logvar)
+    <span class="hljs-keyword">return</span> mse + beta * kl
+</code></pre>
+<p>Note que o <strong>MSE é calculado no espaço transformado</strong> (<code>y = log1p(x)</code> para dias chuvosos, <code>-1.0</code> para secos). Isso significa que o modelo é penalizado igualmente por errar a quantidade de chuva e por classificar incorretamente um dia seco como chuvoso.</p>
+<h4 id="geração-2">Geração</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">sample</span>(<span class="hljs-params">self, n, cond=<span class="hljs-literal">None</span></span>):
+    c_emb = cond_block(cond)
+    z = N(<span class="hljs-number">0</span>, I)
+    y_pred = decoder(cat([z, c_emb]))
+    <span class="hljs-keyword">return</span> expm1(ReLU(y_pred))   <span class="hljs-comment"># converte espaço threshold → mm/dia</span>
+</code></pre>
+<hr>
+<h3 id="92-thresholded_real_nvp_mcpy--thresholdedrealnvpmc">9.2 thresholded_real_nvp_mc.py — ThresholdedRealNVPMc</h3>
+<p><strong>Base:</strong> <code>real_nvp_mc.py</code> + transformação sentinel.</p>
+<p><strong>Diferença-chave:</strong> Em vez de aplicar a transformação <code>log1p</code> apenas nos dados brutos, aplica a transformação completa com sentinel:</p>
+<pre><code class="language-python"><span class="hljs-comment"># No loss():</span>
+y = where(x &gt; <span class="hljs-number">0</span>, log1p(x), -<span class="hljs-number">1.0</span>)   <span class="hljs-comment"># threshold transform</span>
+<span class="hljs-comment"># Passa y (não x) pelo flow</span>
+nll = -flow.log_prob(y, c_emb)      <span class="hljs-comment"># NLL exata no espaço transformado</span>
+
+<span class="hljs-comment"># No sample():</span>
+y_pred = flow.inverse(z, c_emb)     <span class="hljs-comment"># amostra no espaço transformado</span>
+<span class="hljs-keyword">return</span> expm1(ReLU(y_pred))          <span class="hljs-comment"># volta para mm/dia</span>
+</code></pre>
+<p>Reutiliza <code>_CouplingLayerCond</code> do <code>real_nvp_mc.py</code> — as camadas de acoplamento são idênticas, apenas os dados de entrada mudam (espaço threshold em vez de normalizado).</p>
+<p><strong>Vantagem:</strong> NLL exata, como o <code>real_nvp_mc</code>, mas sem precisar de modelo de ocorrência separado. O flow aprende implicitamente a &quot;aglomerar&quot; probabilidade ao redor de <code>-1.0</code> para os dias secos.</p>
+<hr>
+<h3 id="93-thresholded_glow_mcpy--thresholdedglowmc">9.3 thresholded_glow_mc.py — ThresholdedGlowMc</h3>
+<p><strong>Base:</strong> <code>glow_mc.py</code> + transformação sentinel.</p>
+<p>Mesma ideia do <code>ThresholdedRealNVPMc</code>, mas com a arquitetura GLOW (ActNorm + InvertibleLinearLU + AffineCoupling condicionada).</p>
+<pre><code class="language-python"><span class="hljs-comment"># Bloco GLOW padrão, mas agora em y = threshold(x):</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ThresholdedGlowMc</span>(<span class="hljs-title class_ inherited__">BaseModel</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">loss</span>(<span class="hljs-params">self, x, beta=<span class="hljs-number">1.0</span>, cond=<span class="hljs-literal">None</span></span>):
+        y = where(x &gt; <span class="hljs-number">0</span>, log1p(x), -<span class="hljs-number">1.0</span>)
+        c_emb = cond_block(cond)
+        z, log_det = flow.forward(y, c_emb)
+        nll = <span class="hljs-number">0.5</span> * z.<span class="hljs-built_in">pow</span>(<span class="hljs-number">2</span>).<span class="hljs-built_in">sum</span>(-<span class="hljs-number">1</span>) - log_det
+        <span class="hljs-keyword">return</span> nll.mean()
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">sample</span>(<span class="hljs-params">self, n, cond=<span class="hljs-literal">None</span></span>):
+        c_emb = cond_block(cond)
+        z = N(<span class="hljs-number">0</span>, I)
+        y_pred = flow.inverse(z, c_emb)
+        <span class="hljs-keyword">return</span> expm1(ReLU(y_pred))
+</code></pre>
+<p><strong>ActNorm + threshold:</strong> A ActNorm inicializa a escala e bias usando o primeiro batch. Como os dados agora incluem <code>-1.0</code> (dias secos), a inicialização se adapta automaticamente à nova distribuição bimodal (pico em -1.0 e distribuição contínua em [0, ∞)).</p>
+<hr>
+<h3 id="94-thresholded_latent_flow_mcpy--thresholdedlatentflowmc">9.4 thresholded_latent_flow_mc.py — ThresholdedLatentFlowMc</h3>
+<p><strong>Base:</strong> <code>latent_fm_mc.py</code> + transformação sentinel.</p>
+<p>O modelo mais expressivo da família thresholded. Reutiliza a arquitetura completa de dois estágios (CVAE + Flow Matching no espaço latente), mas opera no espaço threshold.</p>
+<pre><code class="language-python"><span class="hljs-comment"># Estágio 1 (VAE): aprende a comprimir y = threshold(x)</span>
+y = where(x &gt; <span class="hljs-number">0</span>, log1p(x), -<span class="hljs-number">1.0</span>)
+loss_vae = MSE(decoder(encoder(y, c_emb), c_emb), y) + beta * KL
+
+<span class="hljs-comment"># Estágio 2 (Flow): aprende a navegar no espaço latente de y</span>
+z₁ = mu(encoder(y))   <span class="hljs-comment"># target latente (sem ruído)</span>
+loss_flow = MSE(v_θ(z_t, t, c_emb), z₁ - z₀)
+
+<span class="hljs-comment"># Geração: ODE → z₁ → decoder → y_pred → expm1(ReLU) → mm/dia</span>
+</code></pre>
+<p>A diferença central em relação ao <code>hurdle_latent_fm_mc</code>:</p>
+<ul>
+<li><strong>Sem modelo de ocorrência explícito</strong> — a máscara seco/chuvoso emerge implicitamente do valor sentinel</li>
+<li><strong>Um único VAE</strong> (em vez de OccVAE + AmtVAE) — menos parâmetros, treino mais simples</li>
+<li><strong>Risco:</strong> se o decoder emite valores muito próximos de 0 para dias secos, podem aparecer precipitações espúrias muito pequenas</li>
+</ul>
+<h4 id="diagrama-comparativo-da-família-thresholded">Diagrama Comparativo da Família Thresholded</h4>
+<pre><code>ThresholdedVAEMc        ThresholdedRealNVPMc    ThresholdedGlowMc     ThresholdedLatentFlowMc
+─────────────────       ─────────────────────   ─────────────────     ────────────────────────
+VAE simples              Flow normalizante        GLOW                  VAE + Flow no latente
+MSE + KL                 NLL exata                NLL exata             MSE + KL + FM loss
+1 estágio                1 estágio                1 estágio             2 estágios
+↑ simples                ↑ rigoroso               ↑ mixing completo     ↑ mais expressivo
+</code></pre>
+<hr>
+<h2 id="10-modelos-autoregressivos-ar">10. Modelos Autoregressivos (AR)</h2>
+<h3 id="100-por-que-modelos-autoregressivos">10.0 Por que Modelos Autoregressivos?</h3>
+<h4 id="a-limitação-dos-modelos-estáticos">A Limitação dos Modelos Estáticos</h4>
+<p>Todos os modelos vistos até aqui — VAE, RealNVP, Flow Matching, GLOW — geram dias de precipitação <strong>independentemente entre si</strong>. Dado o mesmo modelo, gerar o dia 1 e o dia 2 é como fazer dois lançamentos independentes: o dia 2 não &quot;sabe&quot; que o dia 1 aconteceu.</p>
+<p>Isso é fisicamente irreal. Na prática:</p>
+<ul>
+<li>Se choveu muito ontem, hoje é mais provável que chova novamente (persistência de sistemas meteorológicos)</li>
+<li>Se uma frente fria chegou há 3 dias, ainda pode estar influenciando o padrão de chuva hoje</li>
+<li>Sequências longas de seca são mais comuns do que sequências aleatórias sugerem</li>
+</ul>
+<h4 id="o-modelo-autoregressivo">O Modelo Autoregressivo</h4>
+<p>Um modelo AR aprende: <strong>&quot;dado o que aconteceu nos últimos W dias, como é amanhã?&quot;</strong></p>
+<pre><code>P(y_t | y_{t-1}, y_{t-2}, ..., y_{t-W})
+
+Onde:
+    y_t:     precipitação no dia t (vetor de 15 estações)
+    W:       tamanho da janela histórica (padrão: 30 dias)
+    h_t:     resumo comprimido da história → RNN/GRU → vetor fixo
+</code></pre>
+<p><strong>Diagrama do mecanismo AR:</strong></p>
+<pre><code>  ┌─────────────────────────────────────────────────┐
+  │               WINDOW (W=30 dias)                 │
+  │  y(t-30) → y(t-29) → ... → y(t-2) → y(t-1)     │
+  └─────────────────────┬───────────────────────────┘
+                        │ GRU/LSTM
+                        ▼
+                    h_t (contexto)
+                        │
+              ┌─────────┴─────────┐
+              │   Modelo Gerador   │   (VAE, Flow, MeanFlow...)
+              │   y_pred ~ p(·|h_t)│
+              └─────────┬─────────┘
+                        ▼
+                    y(t)  ← inserido na janela para o próximo passo
+</code></pre>
+<h4 id="dados-sabesp-em-vez-de-inmet">Dados: SABESP em vez de INMET</h4>
+<p>Os modelos AR usam dados do sistema <strong>SABESP</strong> (<code>../dados_sabesp/dayprecip.dat</code>) em vez dos dados INMET. Motivos:</p>
+<ul>
+<li>A série SABESP é mais longa (mais anos de dados)</li>
+<li>Estações mais próximas umas das outras → correlação espacial mais forte → mais interessante capturar temporalmente</li>
+<li>Série contínua (menos gaps) → fundamental para sliding window</li>
+</ul>
+<pre><code class="language-bash"><span class="hljs-comment"># Sempre passar data_path para modelos AR:</span>
+python train.py --model ar_vae --data_path ../dados_sabesp/dayprecip.dat
+</code></pre>
+<h4 id="comparação-estático-vs-ar">Comparação: Estático vs. AR</h4>
+<table>
+<thead>
+<tr>
+<th>Característica</th>
+<th>Modelos Estáticos</th>
+<th>Modelos AR</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Independência temporal</td>
+<td>✓ Dias i.i.d.</td>
+<td>✗ Condicionado no histórico</td>
+</tr>
+<tr>
+<td>Autocorrelação lag-1</td>
+<td>✗ Não captura</td>
+<td>✓ Aprende do histórico</td>
+</tr>
+<tr>
+<td>Dados necessários</td>
+<td>INMET ou SABESP</td>
+<td>SABESP (série contínua)</td>
+</tr>
+<tr>
+<td>Geração</td>
+<td><code>sample(n)</code> direto</td>
+<td><code>sample_rollout(seed, n_days)</code></td>
+</tr>
+<tr>
+<td>Paralelismo na geração</td>
+<td>✓ Total</td>
+<td>✗ Sequencial</td>
+</tr>
+<tr>
+<td>Velocidade de treino</td>
+<td>✓ Mais rápido</td>
+<td>✗ Mais lento (RNN)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="as-11-variantes-ar">As 11 Variantes AR</h4>
+<table>
+<thead>
+<tr>
+<th>Modelo</th>
+<th>Núcleo Gerador</th>
+<th>Velocidade (1000 amostras)</th>
+<th>RNN</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ar_vae</code></td>
+<td>VAE</td>
+<td>~5s</td>
+<td>GRU (fixo)</td>
+</tr>
+<tr>
+<td><code>ar_flow_match</code></td>
+<td>Flow Matching</td>
+<td>~20s (50 steps)</td>
+<td>GRU (fixo)</td>
+</tr>
+<tr>
+<td><code>ar_latent_fm</code></td>
+<td>VAE + FM latente</td>
+<td>~25s</td>
+<td>GRU (fixo)</td>
+</tr>
+<tr>
+<td><code>ar_real_nvp</code></td>
+<td>RealNVP</td>
+<td>~67s</td>
+<td>GRU</td>
+</tr>
+<tr>
+<td><code>ar_real_nvp_lstm</code></td>
+<td>RealNVP</td>
+<td>~67s</td>
+<td>LSTM</td>
+</tr>
+<tr>
+<td><code>ar_glow</code></td>
+<td>GLOW</td>
+<td>~50s</td>
+<td>GRU</td>
+</tr>
+<tr>
+<td><code>ar_glow_lstm</code></td>
+<td>GLOW</td>
+<td>~50s</td>
+<td>LSTM</td>
+</tr>
+<tr>
+<td><code>ar_mean_flow</code></td>
+<td>MeanFlow</td>
+<td><strong>~7s</strong></td>
+<td>GRU</td>
+</tr>
+<tr>
+<td><code>ar_mean_flow_lstm</code></td>
+<td>MeanFlow</td>
+<td><strong>~7s</strong></td>
+<td>LSTM</td>
+</tr>
+<tr>
+<td><code>ar_flow_map</code></td>
+<td>FlowMap</td>
+<td><strong>~7s</strong></td>
+<td>GRU</td>
+</tr>
+<tr>
+<td><code>ar_flow_map_lstm</code></td>
+<td>FlowMap</td>
+<td><strong>~7s</strong></td>
+<td>LSTM</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Nota sobre velocidade:</strong> Os modelos de coupling (RealNVP, GLOW) são lentos porque cada camada de acoplamento é <strong>sequencial</strong> — precisa da saída da camada anterior para calcular a próxima. MeanFlow e FlowMap são 1-step: geram a amostra em uma única avaliação da rede.</p>
+<hr>
+<h3 id="101-datasetspy--temporaldataset">10.1 <a href="http://datasets.py">datasets.py</a> — TemporalDataset</h3>
+<p>O <code>TemporalDataset</code> é a infraestrutura que converte uma série temporal em pares <code>(window, target)</code> para treino supervisionado.</p>
+<h4 id="sliding-window">Sliding Window</h4>
+<pre><code>Série temporal: [y₀, y₁, y₂, ..., y_{N-1}]   (N dias, S estações)
+
+Com W=30:
+    Par 0:  window = [y₀, ..., y₂₉]  (30 dias),  target = y₃₀
+    Par 1:  window = [y₁, ..., y₃₀]  (30 dias),  target = y₃₁
+    Par 2:  window = [y₂, ..., y₃₁]  (30 dias),  target = y₃₂
+    ...
+    Par N-W-1: window = [y_{N-W-1}, ...],  target = y_{N-1}
+
+Total de pares: N - W
+</code></pre>
+<p><strong>Embaralhamento é seguro:</strong> cada par <code>(window_i, target_i)</code> é uma instância de treino independente para o objetivo <code>L(y_t | window_t)</code>. Mesmo que as janelas se sobreponham (a janela do par 1 compartilha 29 dias com a do par 0), cada par representa uma instância de aprendizado diferente.</p>
+<h4 id="implementação">Implementação</h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">TemporalDataset</span>(<span class="hljs-title class_ inherited__">Dataset</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, data_norm: np.ndarray, window_size: <span class="hljs-built_in">int</span></span>):
+        self.data = torch.FloatTensor(data_norm)
+        self.W = window_size
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__len__</span>(<span class="hljs-params">self</span>):
+        <span class="hljs-keyword">return</span> <span class="hljs-built_in">len</span>(self.data) - self.W   <span class="hljs-comment"># N - W pares</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__getitem__</span>(<span class="hljs-params">self, i</span>):
+        window = self.data[i : i + self.W]    <span class="hljs-comment"># (W, S)</span>
+        target = self.data[i + self.W]         <span class="hljs-comment"># (S,)</span>
+        <span class="hljs-keyword">return</span> window, target
+</code></pre>
+<h4 id="temporalconddataset"><code>TemporalCondDataset</code></h4>
+<p>Para modelos que usam condicionamento sazonal (dia do ano), o <code>TemporalCondDataset</code> adiciona um terceiro elemento: dicionário de condicionamento alinhado ao dia alvo.</p>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">TemporalCondDataset</span>(<span class="hljs-title class_ inherited__">Dataset</span>):
+    <span class="hljs-comment"># Retorna (window, target, cond_dict)</span>
+    <span class="hljs-comment"># cond_dict = {&#x27;month&#x27;: tensor, &#x27;day_sin&#x27;: tensor, &#x27;day_cos&#x27;: tensor}</span>
+    <span class="hljs-comment"># Tudo alinhado ao índice i + W (o dia alvo)</span>
+</code></pre>
+<h4 id="integração-com-trainpy">Integração com <code>train.py</code></h4>
+<p>Em <code>train.py</code>, o <code>_TEMPORAL_MODELS</code> set detecta modelos AR e usa <code>train_neural_model_temporal()</code> em vez do loop padrão:</p>
+<pre><code class="language-python"><span class="hljs-keyword">if</span> model_name <span class="hljs-keyword">in</span> _TEMPORAL_MODELS:
+    dataset = TemporalDataset(data_norm, window_size=args.window_size)
+    loader  = DataLoader(dataset, batch_size=<span class="hljs-number">128</span>, shuffle=<span class="hljs-literal">True</span>)
+    <span class="hljs-comment"># loop: loss = model.loss((window, target), beta=beta)</span>
+</code></pre>
+<hr>
+<h3 id="102-generate_scenariospy--rollout-ar">10.2 generate_scenarios.py — Rollout AR</h3>
+<p>O <code>generate_scenarios.py</code> implementa a geração de múltiplos cenários futuros a partir de uma janela histórica real.</p>
+<h4 id="o-conceito-de-rollout">O Conceito de Rollout</h4>
+<p>Durante o <strong>treino</strong>, os modelos AR usam <em>teacher forcing</em>: a janela histórica é sempre preenchida com dados reais. Na <strong>geração</strong>, não há dados reais do futuro — cada dia gerado é inserido na janela para gerar o dia seguinte.</p>
+<pre><code>Teacher forcing (treino):
+    window = [y₁, y₂, ..., y₃₀]  ← dados REAIS
+    → modelo prevê y₃₁
+
+Rollout autônomo (geração):
+    window = [y₁, y₂, ..., y₃₀]  ← dados reais (seed)
+    → modelo gera ŷ₃₁
+    window = [y₂, y₃, ..., y₃₀, ŷ₃₁]  ← ŷ substituiu y₃₀
+    → modelo gera ŷ₃₂
+    ...
+</code></pre>
+<h4 id="sample_rollout"><code>sample_rollout()</code></h4>
+<p>Todos os modelos AR implementam:</p>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">sample_rollout</span>(<span class="hljs-params">self, seed_window, n_days, n_scenarios=<span class="hljs-number">10</span>, start_doy=<span class="hljs-number">1</span></span>):
+    <span class="hljs-string">&quot;&quot;&quot;
+    Args:
+        seed_window: Tensor (W, S) — janela real de inicialização
+        n_days:      int — número de dias a gerar
+        n_scenarios: int — cenários paralelos (mesma seed, divergem no ruído)
+        start_doy:   int — dia do ano do primeiro dia gerado (para condicionamento)
+    Returns:
+        Tensor (n_scenarios, n_days, n_stations)
+    &quot;&quot;&quot;</span>
+    <span class="hljs-comment"># Replica seed para todos os cenários</span>
+    window = seed_window.unsqueeze(<span class="hljs-number">0</span>).expand(n_scenarios, -<span class="hljs-number">1</span>, -<span class="hljs-number">1</span>).clone()
+
+    days = []
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_days):
+        doy = (start_doy + i - <span class="hljs-number">1</span>) % <span class="hljs-number">365</span> + <span class="hljs-number">1</span>
+        h = self._encode_window(window)       <span class="hljs-comment"># (n_scenarios, rnn_hidden)</span>
+        y = self._generate_sample(h, n_scenarios)  <span class="hljs-comment"># (n_scenarios, n_stations)</span>
+        window = cat([window[:, <span class="hljs-number">1</span>:], y.unsqueeze(<span class="hljs-number">1</span>)], dim=<span class="hljs-number">1</span>)  <span class="hljs-comment"># desloca janela</span>
+        days.append(y)
+
+    <span class="hljs-keyword">return</span> stack(days, dim=<span class="hljs-number">1</span>)   <span class="hljs-comment"># (n_scenarios, n_days, n_stations)</span>
+</code></pre>
+<p><strong>Diversidade entre cenários:</strong> Todos os <code>n_scenarios</code> cenários partem da mesma <code>seed_window</code>, mas divergem porque o ruído amostrado a cada passo é independente. Isso é como gerar múltiplas previsões climáticas com as mesmas condições iniciais — a incerteza se propaga ao longo do tempo.</p>
+<h4 id="exemplo-de-uso">Exemplo de Uso</h4>
+<pre><code class="language-bash"><span class="hljs-comment"># Gerar 50 cenários de 365 dias com ar_vae</span>
+python generate_scenarios.py \
+    --model ar_vae \
+    --n_scenarios 50 \
+    --n_days 365 \
+    --data_path ../dados_sabesp/dayprecip.dat
+</code></pre>
+<p>O script:</p>
+<ol>
+<li>Carrega o modelo treinado de <code>outputs/ar_vae/</code></li>
+<li>Usa os últimos 30 dias dos dados de validação como <code>seed_window</code></li>
+<li>Gera 50 cenários de 365 dias</li>
+<li>Plota: distribuição de precipitação total anual, autocorrelação, correlação espacial</li>
+</ol>
+<hr>
+<h3 id="103-ar_vaepy--arvae">10.3 ar_vae.py — ARVAE</h3>
+<p>O modelo AR mais simples: substitui o gerador por um VAE condicional no contexto GRU.</p>
+<h4 id="arquitetura-3">Arquitetura</h4>
+<pre><code>Entrada: window (B, W=30, S=90) + target (B, S=90)
+
+GRU (2 camadas):
+    window → h_n[-1]   → h (B, gru_hidden=128)
+
+Encoder:
+    [target(90) ‖ h(128) ‖ c_emb(6)]  →  MLP  →  (mu, logvar) (B, 64)
+
+Decoder:
+    [z(64) ‖ h(128) ‖ c_emb(6)]  →  MLP  →  ReLU  →  y_hat (B, 90)
+    (ReLU garante precipitação ≥ 0)
+
+Loss:
+    MSE(y_hat, target) + beta * KL(q(z|y,h,c) ‖ N(0,I))
+</code></pre>
+<h4 id="por-que-gru_hidden-e-não-passar-toda-a-janela-direto">Por que <code>gru_hidden</code> e não passar toda a janela direto?</h4>
+<p>O GRU comprime 30×90 = 2700 números em um vetor de 128. Sem isso, o encoder precisaria receber 2700 números como entrada — tornando o encoder enorme e o treino lento. O GRU aprende a &quot;resumir&quot; a história relevante automaticamente.</p>
+<h4 id="diversidade-via-espaço-latente">Diversidade via Espaço Latente</h4>
+<pre><code class="language-python"><span class="hljs-comment"># Geração: z ~ N(0,I) — aleatoriedade do dia vem do espaço latente</span>
+z = torch.randn(n_scenarios, latent_size, device=device)
+y = self.decode(z, h, cond_emb)   <span class="hljs-comment"># (n_scenarios, n_stations)</span>
+</code></pre>
+<p>Dois cenários gerados no mesmo dia (mesma <code>h_t</code>) diferem porque <code>z</code> é amostrado independentemente. O GRU fornece o contexto determinístico; o VAE adiciona a variabilidade estocástica.</p>
+<h4 id="sample-vs-sample_rollout"><code>sample()</code> vs <code>sample_rollout()</code></h4>
+<pre><code class="language-python"><span class="hljs-comment"># sample(n): rollout sequencial a partir de janela zero (para evaluate_model)</span>
+<span class="hljs-comment">#   → retorna Tensor (n, n_stations) — como se fossem amostras i.i.d.</span>
+<span class="hljs-comment">#   → inclui warmup de W=30 passos para o GRU sair do estado zero</span>
+
+<span class="hljs-comment"># sample_rollout(seed_window, n_days, n_scenarios):</span>
+<span class="hljs-comment">#   → retorna Tensor (n_scenarios, n_days, n_stations)</span>
+<span class="hljs-comment">#   → usa janela histórica real como ponto de partida</span>
+</code></pre>
+<hr>
+<h3 id="104-ar_flow_matchpy--arflowmatch">10.4 ar_flow_match.py — ARFlowMatch</h3>
+<p>Substitui o VAE por Flow Matching condicional — sem KL collapse.</p>
+<h4 id="vantagem-sobre-arvae">Vantagem sobre ARVAE</h4>
+<p>O VAE tem um modo de falha clássico: <strong>posterior collapse</strong>. Quando o decoder é muito poderoso, aprende a gerar dados razoáveis direto de <code>z ~ N(0,I)</code> sem precisar do encoder. Resultado: todos os <code>z</code> codificados colapsam para <code>N(0,I)</code>, o espaço latente perde significado, e a qualidade das amostras cai.</p>
+<p>O Flow Matching não tem esse problema — não há KL, não há encoder. A rede de velocidade aprende diretamente a trajetória de ruído → dados.</p>
+<h4 id="velocity-mlp-condicional">Velocity MLP Condicional</h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">_CondVelocityMLP</span>(nn.Module):
+    <span class="hljs-comment"># Input: [z_t(S) ‖ t_emb(T) ‖ h(H) ‖ c_emb(C)]</span>
+    <span class="hljs-comment"># Output: velocidade(S)</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, z_t, t_emb, h_cond</span>):
+        <span class="hljs-comment"># h_cond = cat([h, c_emb])  — GRU + condicionamento já concatenados</span>
+        inp = cat([z_t, t_emb, h_cond], dim=-<span class="hljs-number">1</span>)
+        <span class="hljs-keyword">return</span> self.net(inp)
+</code></pre>
+<p><strong>OT path:</strong> <code>z_t = (1-t)·z₀ + t·target</code>, velocidade constante <code>v = target - z₀</code>. O modelo aprende a seguir essa trajetória reta de ruído → dados condicionado no histórico <code>h</code>.</p>
+<h4 id="integração-euler">Integração Euler</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_flow_sample</span>(<span class="hljs-params">self, h, cond_emb, n</span>):
+    z = N(<span class="hljs-number">0</span>, I)               <span class="hljs-comment"># ponto inicial (ruído)</span>
+    dt = <span class="hljs-number">1</span> / n_sample_steps   <span class="hljs-comment"># padrão: 50 passos</span>
+    <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(n_sample_steps):
+        t_val = i * dt
+        t_emb = self.t_embed(full(t_val))
+        v = self.velocity(z, t_emb, cat([h, cond_emb]))
+        z = z + v * dt        <span class="hljs-comment"># passo Euler</span>
+    <span class="hljs-keyword">return</span> z.clamp(<span class="hljs-built_in">min</span>=<span class="hljs-number">0</span>)     <span class="hljs-comment"># não-negatividade</span>
+</code></pre>
+<hr>
+<h3 id="105-ar_latent_fmpy--arlatentfm">10.5 ar_latent_fm.py — ARLatentFM</h3>
+<p>Combina VAE (para comprimir) com Flow Matching (para navegar no espaço comprimido), condicionado no histórico GRU.</p>
+<h4 id="arquitetura-de-três-módulos-simultâneos">Arquitetura de Três Módulos Simultâneos</h4>
+<pre><code>GRU → h                                     [contexto temporal]
+    ↓
+Encoder: [target ‖ h ‖ c_emb] → (mu, logvar) → z    [VAE]
+Decoder: [z ‖ h ‖ c_emb] → y_hat  (ReLU)             [VAE]
+    ↓
+FlowNet: v_θ(z_t, t_emb, h_cond) → velocidade(L)     [Flow no latente]
+</code></pre>
+<p><strong>Gradientes desacoplados:</strong></p>
+<pre><code class="language-python"><span class="hljs-comment"># z.detach() — os gradientes do flow não chegam ao encoder VAE</span>
+z_target = z.detach()
+z_0 = N(<span class="hljs-number">0</span>, I_L)
+v_pred = self.velocity(z_t, t_emb, h_cond)
+fm_loss = MSE(v_pred, z_target - z_0)
+</code></pre>
+<p>Se os gradientes do flow chegassem ao encoder, ele seria treinado tanto para minimizar o VAE loss quanto o FM loss — objetivos conflitantes. O <code>detach()</code> isola as responsabilidades.</p>
+<h4 id="free_bits-prevenindo-colapso"><code>free_bits</code>: Prevenindo Colapso</h4>
+<pre><code class="language-python">kl_per_dim = -<span class="hljs-number">0.5</span> * (<span class="hljs-number">1</span> + logvar - mu.<span class="hljs-built_in">pow</span>(<span class="hljs-number">2</span>) - logvar.exp())   <span class="hljs-comment"># (B, L)</span>
+kl = clamp(kl_per_dim, <span class="hljs-built_in">min</span>=free_bits).mean()
+</code></pre>
+<p><code>free_bits=0.5</code> significa: cada dimensão latente deve contribuir com pelo menos 0.5 nats de KL. Dimensões que &quot;quiserem&quot; colapsar (KL &lt; 0.5) são forçadas a manter alguma informação. Isso previne que o encoder se torne degenerado enquanto o flow é treinado.</p>
+<h4 id="loss-total">Loss Total</h4>
+<pre><code class="language-python">total = mse_recon + beta * kl + fm_loss
+</code></pre>
+<p>Três termos, três objetivos:</p>
+<ul>
+<li><code>mse_recon</code>: o decoder deve reconstruir os dados reais</li>
+<li><code>beta * kl</code>: o espaço latente deve ser regular (próximo de gaussiano)</li>
+<li><code>fm_loss</code>: o flow deve aprender a navegar no espaço latente</li>
+</ul>
+<hr>
+<h3 id="106-ar_real_nvppy--arrealnvp--lstm">10.6 ar_real_nvp.py — ARRealNVP (+ LSTM)</h3>
+<p>Flow normalizante com camadas de acoplamento condicionadas no contexto GRU/LSTM.</p>
+<h4 id="helpers-compartilhados">Helpers Compartilhados</h4>
+<pre><code class="language-python"><span class="hljs-comment"># _make_rnn e _extract_h são definidos aqui e reutilizados por</span>
+<span class="hljs-comment"># ar_glow.py, ar_mean_flow.py, ar_flow_map.py</span>
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_make_rnn</span>(<span class="hljs-params">rnn_type, input_size, hidden_size</span>):
+    cls = {<span class="hljs-string">&#x27;gru&#x27;</span>: nn.GRU, <span class="hljs-string">&#x27;lstm&#x27;</span>: nn.LSTM}[rnn_type]
+    <span class="hljs-keyword">return</span> cls(input_size, hidden_size, num_layers=<span class="hljs-number">2</span>, batch_first=<span class="hljs-literal">True</span>, dropout=<span class="hljs-number">0.1</span>)
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_extract_h</span>(<span class="hljs-params">rnn_output, rnn_type</span>):
+    _, h_n = rnn_output
+    <span class="hljs-keyword">if</span> rnn_type == <span class="hljs-string">&#x27;lstm&#x27;</span>:
+        h_n = h_n[<span class="hljs-number">0</span>]   <span class="hljs-comment"># LSTM retorna (h_n, c_n)</span>
+    <span class="hljs-keyword">return</span> h_n[-<span class="hljs-number">1</span>]      <span class="hljs-comment"># última camada: (B, hidden)</span>
+</code></pre>
+<h4 id="_condcouplinglayer-acoplamento-com-contexto"><code>_CondCouplingLayer</code>: Acoplamento com Contexto</h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">_CondCouplingLayer</span>(nn.Module):
+    <span class="hljs-comment"># Máscara checkerboard: metade das dimensões são &quot;fixas&quot;, metade são &quot;livres&quot;</span>
+    <span class="hljs-comment">#</span>
+    <span class="hljs-comment"># Forward (x → z):</span>
+    <span class="hljs-comment">#   x_fixed = x[:, mask]      ← não modificadas</span>
+    <span class="hljs-comment">#   x_free  = x[:, ~mask]     ← serão transformadas</span>
+    <span class="hljs-comment">#   (s, t)  = MLP(cat([x_fixed, h]))   ← MLP condicionada em h</span>
+    <span class="hljs-comment">#   z_free  = x_free * exp(tanh(s)) + t</span>
+    <span class="hljs-comment">#   log_det = sum(tanh(s))    ← jacobiano</span>
+    <span class="hljs-comment">#</span>
+    <span class="hljs-comment"># Inverse (z → x): resolve z_free = x_free * exp(s) + t para x_free</span>
+    <span class="hljs-comment">#                  usando h (que não mudou)</span>
+</code></pre>
+<p><strong>Por que <code>tanh(s)</code>?</strong> O <code>tanh</code> limita a escala a <code>[-1, 1]</code>, o que limita o <code>log_det</code> e previne explosão numérica. Sem isso, <code>exp(s)</code> poderia ser muito grande ou muito pequeno.</p>
+<h4 id="gru-vs-lstm">GRU vs. LSTM</h4>
+<p>A opção <code>rnn_type='lstm'</code> (registrada como <code>ar_real_nvp_lstm</code>) adiciona a <strong>célula de estado</strong> <code>c</code> do LSTM, que é análoga a uma memória de longo prazo separada do hidden state <code>h</code>. Em teoria, o LSTM captura dependências mais longas que o GRU, mas na prática, para W=30 dias, a diferença tende a ser pequena.</p>
+<h4 id="lentidão-67s-para-1000-amostras">Lentidão: 67s para 1000 amostras</h4>
+<p>Cada amostra requer 8 camadas de acoplamento no modo <strong>inverso</strong> (z → x). No modo forward, as camadas são paralelizáveis. No inverso, cada camada depende da anterior — sequencial, ~8× mais lento que o forward.</p>
+<hr>
+<h3 id="107-ar_glowpy--arglow--lstm">10.7 ar_glow.py — ARGlow (+ LSTM)</h3>
+<p>GLOW com contexto AR: ActNorm + InvertibleLinearLU + AffineCoupling condicionada.</p>
+<h4 id="bloco-glow">Bloco GLOW</h4>
+<p>Cada step do GLOW contém três transformações em sequência:</p>
+<pre><code>Bloco GLOW (para cada step s de 1 a n_steps):
+    1. ActNorm:       y₁ = (x + loc) * scale   [normaliza cada canal]
+    2. InvLinearLU:   y₂ = W · y₁              [mistura todas as dimensões]
+    3. CondCoupling:  y₃ = coupling(y₂, h)     [acoplamento condicionado em h]
+
+Forward completo: y₃^{n_steps} → z → N(0,I)  (normalização)
+Inverse:          z → inverso de cada step (ordem reversa)
+</code></pre>
+<p><strong>InvLinearLU:</strong> <code>W = P·L·U</code> (decomposição LU com permutação), onde <code>P</code> é fixo e <code>L, U</code> são parâmetros treináveis. Isso garante invertibilidade (<code>det(W) ≠ 0</code> se <code>diag(U)</code> ≠ 0) e <code>log|det(W)|</code> computável como <code>sum(log|diag(U)|)</code>.</p>
+<h4 id="️-_w_inv_cache--gotcha-crítico">⚠️ <code>_w_inv_cache</code> — Gotcha Crítico</h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">_InvLinearLU</span>(nn.Module):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, n</span>):
+        ...
+        self._w_inv_cache = <span class="hljs-literal">None</span>  <span class="hljs-comment"># cache da inversa W⁻¹</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">inverse</span>(<span class="hljs-params">self, y</span>):
+        <span class="hljs-keyword">if</span> self._w_inv_cache <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span>:
+            W = P @ L @ U                       <span class="hljs-comment"># monta W</span>
+            self._w_inv_cache = W.inverse()     <span class="hljs-comment"># calcula W⁻¹ (cara!)</span>
+        <span class="hljs-keyword">return</span> y @ self._w_inv_cache            <span class="hljs-comment"># reutiliza W⁻¹</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">train</span>(<span class="hljs-params">self, mode=<span class="hljs-literal">True</span></span>):
+        <span class="hljs-built_in">super</span>().train(mode)
+        <span class="hljs-keyword">if</span> mode:
+            self._w_inv_cache = <span class="hljs-literal">None</span>  <span class="hljs-comment"># invalida cache ao entrar em modo treino</span>
+</code></pre>
+<p><strong>O problema:</strong> Com 8 steps e 90 dimensões, calcular <code>W⁻¹</code> repetidamente para cada amostra seria ruinoso. O cache garante que <code>W⁻¹</code> é calculado apenas uma vez por avaliação. <strong>O <code>train()</code> override limpa o cache</strong> quando o modelo volta ao modo treino — sem isso, <code>W⁻¹</code> ficaria obsoleto após um passo de gradiente (os pesos <code>L, U</code> mudaram).</p>
+<p>Sem esse cache: ~8000 inversões para 1000 amostras. Com cache: 8 inversões. Diferença de velocidade: ~50× mais lento sem cache.</p>
+<hr>
+<h3 id="108-ar_mean_flowpy--armeanflow">10.8 ar_mean_flow.py — ARMeanFlow</h3>
+<p><strong>Referência:</strong> arXiv 2505.13447 (Geng et al., maio 2025)</p>
+<p>Este é um dos dois modelos mais avançados do projeto, implementando o algoritmo <strong>MeanFlow</strong> — uma técnica de geração em 1 passo baseada no conceito de <em>velocidade média</em>.</p>
+<h4 id="o-problema-com-flow-matching-padrão-em-1-passo">O Problema com Flow Matching Padrão em 1 Passo</h4>
+<p>No Flow Matching padrão, a velocidade <code>v_θ(z_t, t)</code> é <strong>instantânea</strong> — prediz a direção do movimento em cada ponto <code>t</code>. Para seguir essa velocidade de forma precisa, precisamos de muitos passos Euler.</p>
+<pre><code>Muitos passos (50-100):   z₀ → z₀.₀₂ → z₀.₀₄ → ... → z₁  (preciso, lento)
+1 passo:                  z₀ → z₁ usando v(z₀, t=0)?        (impreciso — curvatura!)
+</code></pre>
+<p><strong>O problema do 1 passo:</strong> A velocidade instantânea <code>v(z₀, t=0)</code> aponta para onde ir no instante 0, mas a trajetória pode ser curva — após 1 passo, chegamos em um ponto errado.</p>
+<h4 id="a-ideia-do-meanflow-velocidade-média">A Ideia do MeanFlow: Velocidade Média</h4>
+<p>Em vez de aprender <code>v(z_t, t)</code> (velocidade instantânea), o MeanFlow aprende <code>u(z_t, r, t)</code> — a <strong>velocidade média</strong> entre <code>r</code> e <code>t</code>:</p>
+<pre><code>u(z_t, r, t) = &quot;velocidade média do fluxo que parte de z_t no instante t
+                 e integra de r até t&quot;
+
+Analogia: se você sabe que um carro vai de A a B em 1 hora,
+          a velocidade média é (B-A)/1h — independente de curvas no caminho.
+          Você consegue ir de A a B em 1 passo usando essa velocidade média.
+</code></pre>
+<p><strong>MeanFlow Identity:</strong> A identidade matemática central é:</p>
+<pre><code>u(z_t, r, t) = E[velocidade instantânea ao longo de [r, t] | z_t]
+</code></pre>
+<p>Com isso, para ir de <code>z₁</code> (ruído) a <code>z₀</code> (dados) em 1 passo:</p>
+<pre><code>z₀ ≈ z₁ - u(z₁, r=0, t=1)   ← velocidade média do trecho inteiro [0→1]
+</code></pre>
+<h4 id="dois-embeddings-de-tempo-r-e-t">Dois Embeddings de Tempo: r e t</h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">_MeanFlowMLP</span>(nn.Module):
+    <span class="hljs-comment"># Input: [z_t(S) ‖ r_emb(T) ‖ t_emb(T) ‖ h(H)]</span>
+    <span class="hljs-comment">#         ↑        ↑ início   ↑ fim do   ↑ contexto GRU</span>
+    <span class="hljs-comment">#         ponto    do trecho  trecho</span>
+    <span class="hljs-comment">#</span>
+    <span class="hljs-comment"># DIFERENÇA do Flow Matching padrão: dois embeddings (r e t), não apenas t!</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, z_t, r_emb, t_emb, h</span>):
+        <span class="hljs-keyword">return</span> self.net(cat([z_t, r_emb, t_emb, h], dim=-<span class="hljs-number">1</span>))
+</code></pre>
+<p>A rede precisa de dois embeddings porque <code>u</code> depende de <strong>onde estamos</strong> (ponto <code>z_t</code>, tempo <code>t</code>) e de <strong>até onde queremos ir</strong> (tempo <code>r</code>). O Flow Matching padrão só precisa de <code>t</code> porque a velocidade instantânea não tem &quot;destino futuro&quot;.</p>
+<h4 id="treinamento-misto-fm--meanflow">Treinamento Misto: FM + MeanFlow</h4>
+<p>A cada batch, 75% das amostras são treinadas com FM padrão e 25% com a loss MeanFlow:</p>
+<pre><code class="language-python">is_mf = rand(B) &lt; self.mf_ratio   <span class="hljs-comment"># 25% MeanFlow</span>
+
+<span class="hljs-comment"># ── FM batches (r = t): standard flow matching ────────────────────────</span>
+<span class="hljs-comment"># Quando r = t, a &quot;velocidade média&quot; degenera para a velocidade instantânea</span>
+<span class="hljs-comment"># → loss padrão de FM</span>
+u = self.velocity(z_t[fm_idx], t_emb[fm_idx], t_emb[fm_idx], h_cond[fm_idx])
+loss_fm = MSE(u, v_cond[fm_idx])   <span class="hljs-comment"># v_cond = target - z_0</span>
+
+<span class="hljs-comment"># ── MeanFlow batches (r &lt; t): velocidade média com correção ───────────</span>
+r = rand * t   <span class="hljs-comment"># r amostrado uniforme em [0, t]</span>
+u_val, jvp_z = func_jvp(u_fn, (z_t,), (v_cond,))   <span class="hljs-comment"># derivada direcional</span>
+
+<span class="hljs-comment"># Diferença finita para ∂u/∂t</span>
+u_t_plus = velocity(z_t, r_emb, t+ε_emb, h)
+du_dt = (u_t_plus - u_val) / ε
+
+<span class="hljs-comment"># &quot;Correção&quot; = JVP + ∂u/∂t (derivada total de u ao longo da trajetória)</span>
+correction = (jvp_z + du_dt).detach()
+
+<span class="hljs-comment"># Target com correção: u_target ≈ v_cond - (t-r) * correção</span>
+u_target = v_cond - (t - r) * correction
+loss_mf = MSE(u_val, u_target)
+</code></pre>
+<p><strong>O JVP (Jacobian-Vector Product):</strong> <code>jvp_z</code> é a derivada direcional de <code>u</code> em relação a <code>z_t</code> na direção <code>v_cond</code>. Matematicamente, <code>jvp_z = (∂u/∂z) · v_cond</code>. Isso mede &quot;como a velocidade muda se movemos na direção do fluxo&quot; — necessário para corrigir a discrepância entre velocidade instantânea e média.</p>
+<p><strong>Por que <code>(t-r)</code>?</strong> A correção cresce com o tamanho do intervalo <code>[r, t]</code>. Para r=t (FM puro), a correção é zero — recuperamos o FM padrão. Para <code>r=0, t=1</code> (trecho completo), a correção é máxima.</p>
+<h4 id="amostragem-em-1-passo">Amostragem em 1 Passo</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_generate_sample</span>(<span class="hljs-params">self, h_cond, n</span>):
+    z_1 = N(<span class="hljs-number">0</span>, I)                              <span class="hljs-comment"># ruído puro (t=1)</span>
+    r_emb = self.t_embed(zeros(n))             <span class="hljs-comment"># r = 0 (início)</span>
+    t_emb = self.t_embed(ones(n))              <span class="hljs-comment"># t = 1 (fim)</span>
+    <span class="hljs-keyword">return</span> (z_1 - self.velocity(z_1, r_emb, t_emb, h_cond)).clamp(<span class="hljs-built_in">min</span>=<span class="hljs-number">0</span>)
+    <span class="hljs-comment">#              ↑ u(z₁, r=0, t=1, h) — velocidade média do trecho inteiro</span>
+</code></pre>
+<p><strong>Por que <code>z₁ - u</code>?</strong> O fluxo vai de <code>z₀</code> (dados) para <code>z₁</code> (ruído). Para inverter, queremos ir de <code>z₁</code> para <code>z₀</code>:</p>
+<pre><code>z₀ ≈ z₁ - u(z₁, r=0, t=1)
+</code></pre>
+<p>É como dizer: &quot;estou no ponto z₁ (ruído), a velocidade média de 0 até 1 é u, então retrocedo por u para chegar em z₀ (dados)&quot;.</p>
+<h4 id="diagrama-meanflow-vs-flow-matching-padrão">Diagrama: MeanFlow vs. Flow Matching Padrão</h4>
+<pre><code>Flow Matching padrão (50 passos):
+    z₀ ──v(z₀,0)──► z₀.₀₂ ──v(·,0.02)──► ... ──► z₁
+    (cada passo pequeno, velocidade instantânea)
+
+MeanFlow (1 passo):
+    z₁ ──u(z₁, r=0, t=1)──► z₀
+    (velocidade média do trecho inteiro, 1 único salto)
+</code></pre>
+<p><strong>Por que funciona?</strong> A OT path é uma linha reta: <code>z_t = (1-t)·z₀ + t·z₁</code>. Para trajetórias retas, a velocidade instantânea e a média são iguais! O truque do MeanFlow é treinar a rede para aprender essa propriedade mesmo em distribuições complexas.</p>
+<hr>
+<h3 id="109-ar_flow_mappy--arflowmap">10.9 ar_flow_map.py — ARFlowMap</h3>
+<p><strong>Referência:</strong> arXiv 2505.18825 (Boffi, Albergo, Vanden-Eijnden — NeurIPS 2025)</p>
+<p>O segundo modelo avançado de 1 passo, com uma abordagem fundamentalmente diferente do MeanFlow: em vez de aprender a <em>velocidade</em>, aprende diretamente o <em>operador do fluxo</em> — uma função que mapeia posições.</p>
+<h4 id="o-conceito-operador-do-fluxo">O Conceito: Operador do Fluxo</h4>
+<p>O <strong>Flow Map</strong> (mapa do fluxo) é a função <code>Φ(z_s, s, t)</code> que responde:</p>
+<blockquote>
+<p>&quot;Se estou no ponto <code>z_s</code> no tempo <code>s</code>, onde estarei no tempo <code>t</code>?&quot;</p>
+</blockquote>
+<pre><code>Φ(z_s, s, t):   z_s ──── t - s segundos de ODE ────► z_t
+
+Exemplos:
+    Φ(z₀, 0, 1) = z₁    ← de dados para ruído em 1 passo
+    Φ(z₁, 1, 0) = z₀    ← de ruído para dados em 1 passo (inversão!)
+    Φ(z₀.₅, 0.5, 0.8)   ← posição em t=0.8 dado que estava em z₀.₅ em t=0.5
+</code></pre>
+<p><strong>Diferença fundamental:</strong> MeanFlow aprende <em>velocidades</em> (derivadas); FlowMap aprende <em>posições</em> (integrações). São dual um do outro.</p>
+<h4 id="rede-_flowmapmlp">Rede <code>_FlowMapMLP</code></h4>
+<pre><code class="language-python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">_FlowMapMLP</span>(nn.Module):
+    <span class="hljs-comment"># Input: [z_s(S) ‖ s_emb(T) ‖ t_emb(T) ‖ h(H)]</span>
+    <span class="hljs-comment">#         ↑ posição  ↑ tempo   ↑ destino  ↑ contexto</span>
+    <span class="hljs-comment">#         atual      atual     desejado    GRU</span>
+    <span class="hljs-comment">#</span>
+    <span class="hljs-comment"># Output: z_t(S) — posição prevista em tempo t</span>
+</code></pre>
+<p><strong>Semelhança estrutural com MeanFlow:</strong> ambos recebem dois embeddings de tempo como input. A diferença está na interpretação: MeanFlow usa <code>(r, t)</code> onde <code>r</code> é o início e <code>t</code> é o fim do intervalo de velocidade média; FlowMap usa <code>(s, t)</code> onde <code>s</code> é o tempo atual e <code>t</code> é o destino.</p>
+<h4 id="treinamento">Treinamento</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">loss</span>(<span class="hljs-params">self, x, beta=<span class="hljs-number">1.0</span></span>):
+    window, target, cond = x
+    h = encode_window(window)
+    z_0 = N(<span class="hljs-number">0</span>, I)
+
+    <span class="hljs-comment"># Amostrar s e t independentemente (sem restrição de ordem!)</span>
+    s = rand(B)
+    t = rand(B)
+
+    <span class="hljs-comment"># Calcular posições na trajetória OT</span>
+    z_s = (<span class="hljs-number">1</span> - s) * z_0 + s * target   <span class="hljs-comment"># ponto no tempo s</span>
+    z_t = (<span class="hljs-number">1</span> - t) * z_0 + t * target   <span class="hljs-comment"># ponto no tempo t (ground truth)</span>
+
+    <span class="hljs-comment"># Loss: a rede deve prever z_t dado que está em z_s no tempo s</span>
+    z_t_pred = self.flow_map(z_s, s_emb, t_emb, h_cond)
+    <span class="hljs-keyword">return</span> MSE(z_t_pred, z_t)
+</code></pre>
+<p><strong>Por que <code>s</code> e <code>t</code> podem ser amostrados independentemente?</strong> Para a OT path, o mapa do fluxo é exato e explícito:</p>
+<pre><code>Φ(z_s, s, t) = (1-t)·z_0 + t·x = z_t
+</code></pre>
+<p>Independentemente de qual <code>s</code> e <code>t</code> você escolha, a resposta correta sempre é <code>z_t</code>. Isso significa que há uma quantidade infinita de pares de treino válidos para qualquer trajetória!</p>
+<h4 id="amostragem-em-1-passo-1">Amostragem em 1 Passo</h4>
+<pre><code class="language-python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_generate_sample</span>(<span class="hljs-params">self, h_cond, n</span>):
+    z_1 = N(<span class="hljs-number">0</span>, I)           <span class="hljs-comment"># ruído puro (t=1 na escala OT)</span>
+    s_emb = t_embed(ones)   <span class="hljs-comment"># s = 1 (tempo atual = ruído)</span>
+    t_emb = t_embed(zeros)  <span class="hljs-comment"># t = 0 (destino = dados)</span>
+
+    <span class="hljs-keyword">return</span> self.flow_map(z_1, s_emb, t_emb, h_cond).clamp(<span class="hljs-built_in">min</span>=<span class="hljs-number">0</span>)
+    <span class="hljs-comment"># Φ(z₁, s=1, t=0, h) — &quot;de onde vim?&quot; (inversão temporal)</span>
+</code></pre>
+<p><strong>A inversão temporal:</strong> O FlowMap pode ir em qualquer direção temporal. <code>Φ(z_1, s=1, t=0)</code> pergunta: &quot;se estou em z_1 (ruído) no tempo s=1, onde estava no tempo t=0 (dados)?&quot; — é exatamente a geração invertida!</p>
+<h4 id="diagrama-meanflow-vs-flowmap">Diagrama: MeanFlow vs. FlowMap</h4>
+<pre><code>MeanFlow — pergunta sobre VELOCIDADE:
+    &quot;Qual é a velocidade média de r=0 até t=1, partindo de z_1?&quot;
+    u(z₁, r=0, t=1) → &quot;deslocar z₁ por -u para chegar aos dados&quot;
+
+FlowMap — pergunta sobre POSIÇÃO:
+    &quot;Se estou em z₁ (s=1), onde estava em t=0?&quot;
+    Φ(z₁, s=1, t=0) → &quot;a posição dos dados é o destino&quot;
+
+Ambos chegam em 1 passo. Caminhos diferentes, mesmo destino.
+</code></pre>
+<p><strong>Comparação de Treinamento:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Aspecto</th>
+<th>ARMeanFlow</th>
+<th>ARFlowMap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Loss</td>
+<td>MSE de velocidade + correção JVP</td>
+<td>MSE de posição simples</td>
+</tr>
+<tr>
+<td>Complexidade de implementação</td>
+<td>Alta (JVP, finite diff)</td>
+<td>Baixa (MSE puro)</td>
+</tr>
+<tr>
+<td>Teoria</td>
+<td>&quot;MeanFlow Identity&quot;</td>
+<td>&quot;OT path tem FlowMap exato&quot;</td>
+</tr>
+<tr>
+<td>1-step por design</td>
+<td>Sim (treino forçado)</td>
+<td>Sim (por simetria da OT path)</td>
+</tr>
+<tr>
+<td>Velocidade (1000 amostras)</td>
+<td>~7s</td>
+<td>~7s</td>
+</tr>
+</tbody>
+</table>
+<p><strong>FlowMap é mais simples de implementar</strong> — a loss é apenas MSE entre posições na trajetória. MeanFlow requer a correção JVP, que envolve diferenciação automática de segunda ordem. Na prática, ambos têm performance similar para precipitação.</p>
+<hr>
+<h2 id="11-comparepy--a-pipeline-de-comparação">11. <a href="http://compare.py">compare.py</a> — A Pipeline de Comparação</h2>
 <h3 id="o-que-este-arquivo-faz-1">O que este arquivo faz?</h3>
 <p><code>compare.py</code> automatiza todo o ciclo de comparação:</p>
 <ol>
@@ -2697,8 +3777,8 @@ python compare.py --solver_grid --models flow_match ldm
 python compare.py --max_epochs 50
 </code></pre>
 <hr>
-<h2 id="10-exemplos-de-uso-completos">10. Exemplos de Uso Completos</h2>
-<h3 id="101-treinar-um-modelo-do-zero">10.1 Treinar um Modelo do Zero</h3>
+<h2 id="12-exemplos-de-uso-completos">12. Exemplos de Uso Completos</h2>
+<h3 id="121-treinar-um-modelo-do-zero">12.1 Treinar um Modelo do Zero</h3>
 <pre><code class="language-bash"><span class="hljs-built_in">cd</span> PrecipModels/
 
 <span class="hljs-comment"># Modelo mais simples e rápido (recomendado para começar)</span>
@@ -2734,7 +3814,7 @@ python train.py --model vae --resume
 <li><code>training_loss.png</code> — curva de perda</li>
 <li><code>training_history.json</code> — histórico completo</li>
 </ul>
-<h3 id="102-comparar-todos-os-modelos">10.2 Comparar Todos os Modelos</h3>
+<h3 id="122-comparar-todos-os-modelos">12.2 Comparar Todos os Modelos</h3>
 <pre><code class="language-bash"><span class="hljs-comment"># Treina todos e compara</span>
 python compare.py
 
@@ -2751,7 +3831,7 @@ python compare.py --models hurdle_simple copula vae real_nvp --skip_training
 <li><code>radar.png</code> — spider plot</li>
 <li><code>comparison_report.txt</code> — tabela texto</li>
 </ul>
-<h3 id="103-carregar-e-usar-um-modelo-treinado">10.3 Carregar e Usar um Modelo Treinado</h3>
+<h3 id="123-carregar-e-usar-um-modelo-treinado">12.3 Carregar e Usar um Modelo Treinado</h3>
 <pre><code class="language-python"><span class="hljs-keyword">import</span> torch
 <span class="hljs-keyword">import</span> pickle
 <span class="hljs-keyword">import</span> numpy <span class="hljs-keyword">as</span> np
@@ -2795,7 +3875,7 @@ samples_vae = vae.sample(<span class="hljs-number">1000</span>)
     config = json.load(f)
 <span class="hljs-comment"># mu e std do treino seriam necessários para denormalizar corretamente</span>
 </code></pre>
-<h3 id="104-adicionar-um-novo-modelo-ao-framework">10.4 Adicionar um Novo Modelo ao Framework</h3>
+<h3 id="124-adicionar-um-novo-modelo-ao-framework">12.4 Adicionar um Novo Modelo ao Framework</h3>
 <p>Para adicionar um novo modelo, você precisa:</p>
 <ol>
 <li><strong>Criar o arquivo do modelo</strong> em <code>models/meu_modelo.py</code>:</li>
@@ -2864,7 +3944,7 @@ ARCH_DEFAULTS[<span class="hljs-string">&quot;meu_modelo&quot;</span>] = {}  <sp
 <pre><code class="language-bash">python train.py --model meu_modelo
 python compare.py --models meu_modelo hurdle_simple copula
 </code></pre>
-<h3 id="105-interpretar-as-saídas-do-training">10.5 Interpretar as Saídas do Training</h3>
+<h3 id="125-interpretar-as-saídas-do-training">12.5 Interpretar as Saídas do Training</h3>
 <pre><code class="language-json"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">&quot;mean_wasserstein&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1.603</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">&quot;corr_rmse&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0.180</span><span class="hljs-punctuation">,</span>
@@ -2894,7 +3974,7 @@ python compare.py --models meu_modelo hurdle_simple copula
 <li><code>lag1_autocorr_error &gt; 0.1</code> → persistência temporal mal capturada</li>
 </ul>
 <hr>
-<h2 id="11-resultados-e-conclusões">11. Resultados e Conclusões</h2>
+<h2 id="13-resultados-e-conclusões">13. Resultados e Conclusões</h2>
 <h3 id="tabela-completa-de-resultados">Tabela Completa de Resultados</h3>
 <table>
 <thead>
@@ -2992,6 +4072,10 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 <td>Normalização de ativação aprendida por canal — inicializada como BatchNorm mas determinística na inferência (usada no GLOW)</td>
 </tr>
 <tr>
+<td><strong>AR (Autoregressive)</strong></td>
+<td>Modelo onde a geração do passo atual é condicionada nos passos anteriores: `p(y_t</td>
+</tr>
+<tr>
 <td><strong>Batch</strong></td>
 <td>Subconjunto dos dados processado em cada passo de gradiente</td>
 </tr>
@@ -3016,6 +4100,10 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 <td>Denoising Diffusion Probabilistic Models — modelo de difusão</td>
 </tr>
 <tr>
+<td><strong>Day-of-Year (DoY)</strong></td>
+<td>Número do dia no ano (1–366). Usado como condicionamento sazonal contínuo via sin/cos: <code>(sin(2π·doy/365.25), cos(2π·doy/365.25))</code></td>
+</tr>
+<tr>
 <td><strong>ELBO</strong></td>
 <td>Evidence Lower Bound — objetivo variacional do VAE</td>
 </tr>
@@ -3026,6 +4114,10 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 <tr>
 <td><strong>FiLM</strong></td>
 <td>Feature-wise Linear Modulation — modulação de ativações via escala e translação aprendidas de uma condição externa (<code>h * (1 + scale) + shift</code>)</td>
+</tr>
+<tr>
+<td><strong>Flow Map</strong></td>
+<td>Operador do fluxo <code>Φ(z_s, s, t)</code> que prevê a posição <code>z_t</code> dado que o processo está em <code>z_s</code> no tempo <code>s</code>. Aprende o operador de integração diretamente, sem precisar de velocidades. (arXiv 2505.18825)</td>
 </tr>
 <tr>
 <td><strong>GLOW</strong></td>
@@ -3040,12 +4132,20 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 <td>Modelo com dois estágios: ocorrência (binária) + quantidade (contínua)</td>
 </tr>
 <tr>
+<td><strong>JVP (Jacobian-Vector Product)</strong></td>
+<td>Derivada direcional de uma função: <code>JVP(f, x, v) = (∂f/∂x) · v</code>. No MeanFlow, mede como a velocidade muda ao se mover na direção do fluxo — usado para a correção da velocidade média.</td>
+</tr>
+<tr>
 <td><strong>KL Divergence</strong></td>
 <td>Kullback-Leibler — medida de diferença entre distribuições</td>
 </tr>
 <tr>
 <td><strong>Latente</strong></td>
 <td>Representação comprimida dos dados em dimensão menor</td>
+</tr>
+<tr>
+<td><strong>MeanFlow Identity</strong></td>
+<td>Identidade matemática do algoritmo MeanFlow: a velocidade média <code>u(z_t, r, t)</code> de <code>r</code> a <code>t</code> iguala a esperança da velocidade instantânea ao longo do trecho. Permite geração precisa em 1 passo. (arXiv 2505.13447)</td>
 </tr>
 <tr>
 <td><strong>NLL</strong></td>
@@ -3064,8 +4164,20 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 <td>Equação Diferencial Ordinária — equação de evolução temporal</td>
 </tr>
 <tr>
+<td><strong>Rollout</strong></td>
+<td>Geração autoregressiva autônoma: cada dia gerado é inserido na janela histórica para gerar o próximo, sem usar dados reais do futuro</td>
+</tr>
+<tr>
 <td><strong>Softplus</strong></td>
 <td><code>log(1+exp(x))</code> — alternativa suave ao ReLU, sempre positivo</td>
+</tr>
+<tr>
+<td><strong>Teacher Forcing</strong></td>
+<td>Técnica de treino para modelos AR: a janela histórica é sempre preenchida com dados reais, mesmo que o modelo já tenha gerado predições anteriores. Acelera a convergência mas cria discrepância com a geração autônoma.</td>
+</tr>
+<tr>
+<td><strong>Threshold Transform (Sentinel)</strong></td>
+<td>Transformação <code>y = where(x&gt;0, log1p(x), -1.0)</code> — mapeia todos os dias (secos e chuvosos) para um único espaço contínuo, com <code>-1.0</code> como sentinel para dias secos</td>
 </tr>
 <tr>
 <td><strong>Wasserstein</strong></td>
@@ -3074,7 +4186,7 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 </tbody>
 </table>
 <hr>
-<p><em>Documento gerado em 03/03/2026 — Framework PrecipModels v1.1 (inclui modelos _mc e variantes adicionais)</em></p>
+<p><em>Documento gerado em 03/03/2026 — Framework PrecipModels v1.2 (inclui modelos _mc restantes, thresholded e AR autoregressivos)</em></p>
 
             
             

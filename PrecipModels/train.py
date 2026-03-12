@@ -1148,13 +1148,29 @@ def train_model(args):
 
     # ── Métricas ──
     model.eval()
+    # AR/temporal models do sequential rollouts — cap samples and timing trials
+    # to keep evaluation under ~5 min instead of 30+ min
+    if is_temporal:
+        eval_n_samples = min(args.n_samples, 200)
+        timing_n_samples = 100
+        timing_n_trials = 1
+        print(f"[{variant_name}] [Phase: Evaluation] AR model detected — "
+              f"using {eval_n_samples} samples, {timing_n_trials} timing trial "
+              f"(reduced from {args.n_samples} / 5 to avoid multi-hour eval)")
+    else:
+        eval_n_samples = args.n_samples
+        timing_n_samples = 1000
+        timing_n_trials = 5
+        print(f"[{variant_name}] [Phase: Evaluation] Generating {eval_n_samples} samples...")
     metrics = evaluate_model(
         model,
         eval_raw,
         mu,
         std,
-        n_samples=args.n_samples,
+        n_samples=eval_n_samples,
         station_names=station_names,
+        timing_n_samples=timing_n_samples,
+        timing_n_trials=timing_n_trials,
     )
     metrics['final_epoch'] = max_epochs
     metrics['final_train_loss'] = history[-1]['total']

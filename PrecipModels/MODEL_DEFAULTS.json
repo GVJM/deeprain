@@ -226,8 +226,9 @@
         "max_epochs": 300,
         "lr": 0.0003,
         "batch_size": 128,
-        "kl_warmup": 50,
-        "latent_size": 32},
+        "kl_warmup": 200,
+        "latent_size": 32,
+        "free_bits": 0.5},
     "ar_real_nvp": {
         "normalization_mode": "scale_only",
         "max_epochs": 300,

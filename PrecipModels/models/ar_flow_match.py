@@ -252,7 +252,10 @@ class ARFlowMatch(BaseModel):
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
 
         samples = []
+        log_every = max(1, n // 4)
         for i in range(n):
+            if i > 0 and i % log_every == 0:
+                print(f"  [ar_flow_match] sampling step {i}/{n}...", flush=True)
             doy = (start_doy + i - 1) % 365 + 1
             cond = self._make_day_cond(doy, 1, device)
             h = self._encode_window(window)

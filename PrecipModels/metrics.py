@@ -329,6 +329,8 @@ def evaluate_model(
     n_samples: int = 5000,
     station_names: list = None,
     samples_are_normalized: bool = True,
+    timing_n_samples: int = 1000,
+    timing_n_trials: int = 5,
 ) -> dict:
     """
     Avalia um modelo treinado computando todas as métricas.
@@ -368,7 +370,7 @@ def evaluate_model(
     quant = extreme_quantile_error(data_raw, generated)
     es = energy_score(data_raw, generated)
     coverage = coverage_test(data_raw, generated)
-    t_ms = sampling_time_ms(model, n_samples=1000)
+    t_ms = sampling_time_ms(model, n_samples=timing_n_samples, n_trials=timing_n_trials)
     n_params = model.count_parameters()
 
     # Métricas temporais (informativas — não afetam composite score)

@@ -1,15 +1,11 @@
 [
   {"variant_name": "ar_vae",            "model": "ar_vae",            "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_flow_match",     "model": "ar_flow_match",     "data_path": "../dados_sabesp/dayprecip.dat"},
   {"variant_name": "ar_latent_fm",      "model": "ar_latent_fm",      "data_path": "../dados_sabesp/dayprecip.dat"},
   {"variant_name": "ar_real_nvp",       "model": "ar_real_nvp",       "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_real_nvp_lstm",  "model": "ar_real_nvp_lstm",  "data_path": "../dados_sabesp/dayprecip.dat"},
   {"variant_name": "ar_glow",           "model": "ar_glow",           "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_glow_lstm",      "model": "ar_glow_lstm",      "data_path": "../dados_sabesp/dayprecip.dat"},
   {"variant_name": "ar_mean_flow",      "model": "ar_mean_flow",      "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_mean_flow_lstm", "model": "ar_mean_flow_lstm", "data_path": "../dados_sabesp/dayprecip.dat"},
   {"variant_name": "ar_flow_map",       "model": "ar_flow_map",       "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_flow_map_lstm",  "model": "ar_flow_map_lstm",  "data_path": "../dados_sabesp/dayprecip.dat"},
+  {"variant_name": "ar_flow_match",     "model": "ar_flow_match",     "data_path": "../dados_sabesp/dayprecip.dat"},
 
   {"variant_name": "ar_vae_small",  "model": "ar_vae", "data_path": "../dados_sabesp/dayprecip.dat", "gru_hidden": 64,  "hidden_size": 128, "latent_size": 32},
   {"variant_name": "ar_vae_medium", "model": "ar_vae", "data_path": "../dados_sabesp/dayprecip.dat", "gru_hidden": 128, "hidden_size": 256, "latent_size": 64},
@@ -18,16 +14,10 @@
   {"variant_name": "ar_real_nvp_c4_gru",   "model": "ar_real_nvp",      "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 4},
   {"variant_name": "ar_real_nvp_c8_gru",   "model": "ar_real_nvp",      "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 8},
   {"variant_name": "ar_real_nvp_c16_gru",  "model": "ar_real_nvp",      "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 16},
-  {"variant_name": "ar_real_nvp_c4_lstm",  "model": "ar_real_nvp_lstm", "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 4},
-  {"variant_name": "ar_real_nvp_c8_lstm",  "model": "ar_real_nvp_lstm", "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 8},
-  {"variant_name": "ar_real_nvp_c16_lstm", "model": "ar_real_nvp_lstm", "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 16},
 
   {"variant_name": "ar_glow_s4_gru",   "model": "ar_glow",      "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 4},
   {"variant_name": "ar_glow_s8_gru",   "model": "ar_glow",      "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 8},
   {"variant_name": "ar_glow_s16_gru",  "model": "ar_glow",      "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 16},
-  {"variant_name": "ar_glow_s4_lstm",  "model": "ar_glow_lstm", "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 4},
-  {"variant_name": "ar_glow_s8_lstm",  "model": "ar_glow_lstm", "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 8},
-  {"variant_name": "ar_glow_s16_lstm", "model": "ar_glow_lstm", "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 16},
 
   {"variant_name": "ar_mean_flow_h128_l2", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 2},
   {"variant_name": "ar_mean_flow_h128_l4", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 4},
