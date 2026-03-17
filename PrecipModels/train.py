@@ -402,6 +402,7 @@ def train_neural_model_temporal(
             running = {}
             n_samples = 0
             beta = get_beta(epoch, kl_warmup)
+            eff_mf = get_mf_ratio(epoch, mf_warmup, model.mf_ratio) if hasattr(model, 'mf_ratio') else None
 
             for batch in loader:
                 if train_cond is not None:
@@ -415,8 +416,7 @@ def train_neural_model_temporal(
                 optimizer.zero_grad()
                 with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
                     # MeanFlow correction warmup: only applies to models with mf_ratio attribute
-                    if hasattr(model, 'mf_ratio'):
-                        eff_mf = get_mf_ratio(epoch, mf_warmup, model.mf_ratio)
+                    if eff_mf is not None:
                         loss_dict = model.loss((window_batch, target_batch, cond_batch),
                                                beta=beta, effective_mf_ratio=eff_mf)
                     else:
@@ -792,6 +792,7 @@ def train_model(args):
         "lr": lr,
         "batch_size": batch_size,
         "kl_warmup": kl_warmup,
+        "mf_warmup": mf_warmup,
         "latent_size": latent_size,
         "latent_occ": latent_occ,
         "latent_amt": latent_amt,
