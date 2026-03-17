@@ -153,6 +153,21 @@ def get_beta(epoch: int, kl_warmup: int) -> float:
     return min(1.0, (epoch + 1) / kl_warmup)
 
 
+def get_mf_ratio(epoch: int, mf_warmup: int, mf_ratio: float) -> float:
+    """Linear ramp of mf_ratio from 0 to mf_ratio over 100 epochs after mf_warmup.
+
+    Epochs 0 to mf_warmup-1: returns 0.0 (pure flow matching, no MeanFlow correction).
+    Epochs mf_warmup to mf_warmup+99: linearly ramps from 0.0 to mf_ratio.
+    Epoch mf_warmup+100 onwards: returns mf_ratio (full correction).
+
+    If mf_warmup <= 0, returns mf_ratio immediately (no warmup).
+    """
+    if mf_warmup <= 0:
+        return mf_ratio
+    ramp = min(1.0, max(0.0, (epoch - mf_warmup) / 100.0))
+    return mf_ratio * ramp
+
+
 def temporal_holdout_split_with_cond(
     data_raw: np.ndarray,
     cond_arrays: dict,
@@ -338,7 +353,8 @@ def train_neural_model_temporal(
     batch_size: int,
     kl_warmup: int,
     device: torch.device,
-    model_name: str,
+    mf_warmup: int = 0,             # ← new: MeanFlow correction warmup epochs
+    model_name: str = "",
     train_cond: dict | None = None,
     print_every: int = 50,
     optimizer_state: dict = None,
@@ -398,7 +414,13 @@ def train_neural_model_temporal(
                 target_batch = target_batch.to(device)
                 optimizer.zero_grad()
                 with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
-                    loss_dict = model.loss((window_batch, target_batch, cond_batch), beta=beta)
+                    # MeanFlow correction warmup: only applies to models with mf_ratio attribute
+                    if hasattr(model, 'mf_ratio'):
+                        eff_mf = get_mf_ratio(epoch, mf_warmup, model.mf_ratio)
+                        loss_dict = model.loss((window_batch, target_batch, cond_batch),
+                                               beta=beta, effective_mf_ratio=eff_mf)
+                    else:
+                        loss_dict = model.loss((window_batch, target_batch, cond_batch), beta=beta)
                 loss_dict['total'].backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -726,6 +748,7 @@ def train_model(args):
     lr = args.lr if args.lr is not None else defaults["lr"]
     batch_size = args.batch_size if args.batch_size is not None else defaults["batch_size"]
     kl_warmup = args.kl_warmup if args.kl_warmup is not None else defaults["kl_warmup"]
+    mf_warmup = args.mf_warmup if args.mf_warmup is not None else defaults.get("mf_warmup", 0)
     latent_size = args.latent_size if args.latent_size is not None else defaults["latent_size"]
     norm_mode = args.normalization_mode if args.normalization_mode is not None else defaults["normalization_mode"]
 
@@ -846,6 +869,8 @@ def train_model(args):
         ("rnn_type",       _arch("rnn_type")),
         ("n_steps",        _arch("n_steps")),
         ("mf_ratio",       _arch("mf_ratio")),
+        ("jvp_eps",        _arch("jvp_eps")),    # new
+        ("occ_weight",     _arch("occ_weight")), # new
     ]:
         if val is not None:
             extra_model_kwargs[key] = val
@@ -1085,6 +1110,7 @@ def train_model(args):
             batch_size=batch_size,
             kl_warmup=kl_warmup,
             device=device,
+            mf_warmup=mf_warmup,            # ← new
             model_name=model_name,
             optimizer_state=optimizer_state,
             eval_norm=eval_norm,
@@ -1263,6 +1289,12 @@ def main():
                         help="Number of Glow steps (ar_glow)")
     parser.add_argument("--mf_ratio", type=float, default=None,
                         help="Mean flow ratio (ar_mean_flow)")
+    parser.add_argument("--mf_warmup", type=int, default=None,
+                        help="Epochs of pure FM before MeanFlow correction ramp (ar_mean_flow_v2)")
+    parser.add_argument("--jvp_eps", type=float, default=None,
+                        help="Finite-difference epsilon for du/dt in MeanFlow (ar_mean_flow family)")
+    parser.add_argument("--occ_weight", type=float, default=None,
+                        help="Weight of occurrence BCE loss (ar_vae_v2)")
 
     parser.add_argument("--optimize", action="store_true",
                         help="Enable Intel CPU optimizations: torch.compile, BF16 autocast, thread tuning, IPEX if available")

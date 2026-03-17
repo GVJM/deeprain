@@ -38,6 +38,7 @@ _NS_DEFAULTS = dict(
     gru_hidden=None, context_dim=None, window_size=7,
     hidden_dim=None, t_embed_dim=None, n_sample_steps=None,
     rnn_hidden=None, rnn_type=None, n_steps=None, mf_ratio=None,
+    mf_warmup=None, jvp_eps=None, occ_weight=None,   # new
 )
 
 def get_status(variant_name):
