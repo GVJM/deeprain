@@ -80,8 +80,8 @@ def load_btg_barragens_inmet_df():
     return pivot
 
 
-def load_sabesp_daily_precip():
-    dados = pd.read_csv(SABESP_DATA_PATH)
+def load_sabesp_daily_precip(path: str = SABESP_DATA_PATH):
+    dados = pd.read_csv(path)
     dados['datetime'] = pd.to_datetime(dados['datetime'])
 
     dodos_count = dados.count()
@@ -132,11 +132,8 @@ def load_data(
     """
     if data_path == DEFAULT_DATA_PATH:
         pivot = load_btg_barragens_inmet_df()
-    if data_path == SABESP_DATA_PATH: 
-        pivot = load_sabesp_daily_precip()
-    else: 
-        print(r"\n\n\n\n DEU RUIM OLHA AQUI \n\n\n\n")
-        pivot = load_btg_barragens_inmet_df()
+    else:
+        pivot = load_sabesp_daily_precip(data_path)
 
     station_names = list(pivot.columns)
     data_np = pivot.to_numpy()
@@ -202,11 +199,8 @@ def load_data_with_cond(
     """
     if data_path == DEFAULT_DATA_PATH:
         pivot = load_btg_barragens_inmet_df()
-    if data_path == SABESP_DATA_PATH:
-        pivot = load_sabesp_daily_precip()
     else:
-        print(r"\n\n\n\n DEU RUIM OLHA AQUI \n\n\n\n")
-        pivot = load_btg_barragens_inmet_df()
+        pivot = load_sabesp_daily_precip(data_path)
 
     station_names = list(pivot.columns)
     data_np = pivot.to_numpy()
