@@ -16,11 +16,10 @@ Training on OT paths:
     For OT straight paths, the exact flow map IS z_t — so this is the ground truth.
     Training on all (s,t) pairs teaches the model to jump between any two path times.
 
-1-step sampling:
-    h = GRU(window)
-    z_1 ~ N(0,I)  [pure noise, t=1 on OT scale]
-    z_hat = Phi_theta(z_1, emb(1), emb(0), h)  [jump to data manifold at t=0]
-    y = clamp(z_hat, min=0)
+Sampling: z_0 ~ N(0,I) [pure noise, t=0 on OT scale].
+          Euler steps from s=0 to t=1 via self.flow_map.
+          n_steps=1 gives single-step prediction;
+          n_steps>1 gives multi-step ODE (better diversity).
 """
 
 import math
@@ -55,11 +54,12 @@ class _FlowMapMLP(nn.Module):
 class ARFlowMap(BaseModel):
     def __init__(self, input_size=90, window_size=30, rnn_hidden=128,
                  hidden_size=256, n_layers=4, t_embed_dim=64,
-                 rnn_type='gru', **kwargs):
+                 rnn_type='gru', n_steps: int = 1, **kwargs):
         super().__init__()
         self.n_stations  = input_size
         self.window_size = window_size
         self.rnn_type    = rnn_type
+        self.n_steps     = n_steps
         self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
@@ -110,15 +110,26 @@ class ARFlowMap(BaseModel):
         return {'total': fm_loss, 'fm_loss': fm_loss}
 
     def _generate_sample(self, h_cond, n):
-        """1-step: Phi(z_1, s=1, t=0, h) → data space."""
+        """n_steps Euler steps from noise(t=0) to data(t=1).
+        Correct OT direction: z_0 ~ N(0,I) at t=0 (noise side),
+        iteratively mapped to t=1 (data side) via self.flow_map.
+        """
         device = h_cond.device
-        z_1   = torch.randn(n, self.n_stations, device=device)
-        s_emb = self.t_embed(torch.ones(n, device=device))
-        t_emb = self.t_embed(torch.zeros(n, device=device))
-        return self.flow_map(z_1, s_emb, t_emb, h_cond).clamp(min=0.0)
+        z = torch.randn(n, self.n_stations, device=device)
+        ds = 1.0 / self.n_steps
+        for i in range(self.n_steps):
+            s_val = i * ds
+            t_val = s_val + ds
+            s_emb = self.t_embed(torch.full((n,), s_val, device=device))
+            t_emb = self.t_embed(torch.full((n,), t_val, device=device))
+            z = self.flow_map(z, s_emb, t_emb, h_cond)
+        return z.clamp(min=0.0)
 
     @torch.no_grad()
     def sample(self, n, steps=None, method=None, start_doy: int = 1):
+        _n_steps_orig = self.n_steps
+        if steps is not None:
+            self.n_steps = steps
         device = next(self.parameters()).device
         window = torch.zeros(1, self.window_size, self.n_stations, device=device)
         for i in range(self.window_size):
@@ -142,10 +153,14 @@ class ARFlowMap(BaseModel):
             y = self._generate_sample(h_cond, 1)
             window = torch.cat([window[:, 1:], y.unsqueeze(1)], dim=1)
             samples.append(y)
+        self.n_steps = _n_steps_orig
         return torch.cat(samples, dim=0)
 
     @torch.no_grad()
-    def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_doy: int = 1):
+    def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_doy: int = 1, steps=None):
+        _n_steps_orig = self.n_steps
+        if steps is not None:
+            self.n_steps = steps
         device = next(self.parameters()).device
         window = seed_window.to(device).unsqueeze(0).expand(n_scenarios, -1, -1).clone()
         days = []
@@ -158,4 +173,5 @@ class ARFlowMap(BaseModel):
             y = self._generate_sample(h_cond, n_scenarios)
             window = torch.cat([window[:, 1:], y.unsqueeze(1)], dim=1)
             days.append(y)
+        self.n_steps = _n_steps_orig
         return torch.stack(days, dim=1)
