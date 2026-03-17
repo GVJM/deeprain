@@ -47,5 +47,8 @@
   {"variant_name": "ar_flow_match_h256_l6", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 6},
   {"variant_name": "ar_flow_match_h512_l2", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 2},
   {"variant_name": "ar_flow_match_h512_l4", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 4},
-  {"variant_name": "ar_flow_match_h512_l6", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 6}
+  {"variant_name": "ar_flow_match_h512_l6", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 6},
+
+  {"variant_name": "ar_mean_flow_v2",  "model": "ar_mean_flow_v2",  "data_path": "../dados_sabesp/dayprecip.dat"},
+  {"variant_name": "ar_vae_v2",        "model": "ar_vae_v2",         "data_path": "../dados_sabesp/dayprecip.dat"}
 ]
