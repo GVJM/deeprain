@@ -88,7 +88,8 @@ class ARVAE(BaseModel):
         self.gru_hidden  = gru_hidden
         self.latent_size = latent_size
         self.occ_weight  = occ_weight
-        self.threshold   = nn.Parameter(torch.zeros(input_size))
+        if occ_weight > 0:
+            self.threshold = nn.Parameter(torch.zeros(input_size))
         self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim    = self.cond_block.total_dim
 
@@ -175,16 +176,17 @@ class ARVAE(BaseModel):
 
     def loss(self, x, beta: float = 1.0) -> dict:
         """
-        Calcula VAE loss condicional: MSE(y_t, y_hat) + beta * KL(q||N(0,I))
+        Calcula VAE loss condicional: MSE(y_t, y_hat) + beta * KL(q||N(0,I)) [+ occ_weight * BCE]
 
         Args:
-            x:    tupla (window, target)
+            x:    tupla (window, target, [cond])
                   window: (B, W, S) — contexto histórico
                   target: (B, S)    — dia alvo
             beta: peso KL (annealing via train.py)
 
         Returns:
-            {'total': ..., 'mse': ..., 'kl': ...}
+            {'total': ..., 'mse': ..., 'kl': ..., 'occ': ...}
+            occ is 0.0 when occ_weight=0 (disabled).
         """
         if len(x) == 3:
             window, target, cond = x
