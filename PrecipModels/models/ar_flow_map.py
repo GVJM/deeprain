@@ -16,10 +16,12 @@ Training on OT paths:
     For OT straight paths, the exact flow map IS z_t — so this is the ground truth.
     Training on all (s,t) pairs teaches the model to jump between any two path times.
 
-Sampling: z_0 ~ N(0,I) [pure noise, t=0 on OT scale].
-          Euler steps from s=0 to t=1 via self.flow_map.
-          n_steps=1 gives single-step prediction;
-          n_steps>1 gives multi-step ODE (better diversity).
+Sampling: h = GRU(window_{t-W:t-1})  [context from history]
+          z_0 ~ N(0,I) [pure noise, t=0 on OT scale]
+          z_1 = FlowMap(z_0, s=0, t=1, h)  [n_steps=1: single jump]
+          or: z_1 = Euler(z_0→1 via self.flow_map, h, n_steps)  [multi-step ODE]
+          n_steps=1: single-step prediction (may collapse diversity)
+          n_steps>1: multi-step ODE (better diversity, used by ar_flow_map_ms)
 """
 
 import math
@@ -113,6 +115,8 @@ class ARFlowMap(BaseModel):
         """n_steps Euler steps from noise(t=0) to data(t=1).
         Correct OT direction: z_0 ~ N(0,I) at t=0 (noise side),
         iteratively mapped to t=1 (data side) via self.flow_map.
+        With n_steps=1: single-step prediction (may collapse diversity).
+        With n_steps>1: multi-step ODE preserves z_0 stochasticity.
         """
         device = h_cond.device
         z = torch.randn(n, self.n_stations, device=device)
