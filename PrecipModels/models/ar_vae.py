@@ -70,6 +70,7 @@ class ARVAE(BaseModel):
         gru_hidden: int = 128,
         latent_size: int = 64,
         hidden_size: int = 256,
+        occ_weight: float = 0.0,    # new: default 0 = disabled (backward compatible)
         **kwargs,
     ):
         """
@@ -79,12 +80,15 @@ class ARVAE(BaseModel):
             gru_hidden:  dimensão oculta do GRU
             latent_size: dimensão do espaço latente z
             hidden_size: dimensão das camadas ocultas do encoder/decoder
+            occ_weight:  weight for occurrence BCE loss (0 = disabled)
         """
         super().__init__()
         self.n_stations  = input_size
         self.window_size = window_size
         self.gru_hidden  = gru_hidden
         self.latent_size = latent_size
+        self.occ_weight  = occ_weight
+        self.threshold   = nn.Parameter(torch.zeros(input_size))
         self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim    = self.cond_block.total_dim
 
@@ -195,8 +199,13 @@ class ARVAE(BaseModel):
 
         mse   = F.mse_loss(x_hat, target)
         kl    = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-        total = mse + beta * kl
-        return {"total": total, "mse": mse, "kl": kl}
+        occ_loss = torch.tensor(0.0, device=target.device)
+        if self.occ_weight > 0:
+            pred_logit = x_hat - self.threshold.abs()
+            true_occ   = (target > 0).float()
+            occ_loss   = F.binary_cross_entropy_with_logits(pred_logit, true_occ)
+        total = mse + beta * kl + self.occ_weight * occ_loss
+        return {"total": total, "mse": mse, "kl": kl, "occ": occ_loss}
 
     @torch.no_grad()
     def sample(self, n: int, steps=None, method=None, start_doy: int = 1) -> Tensor:
@@ -224,6 +233,8 @@ class ARVAE(BaseModel):
             z = torch.randn(1, self.latent_size, device=device)
             cond_emb = self._cond_embed(cond, 1, device)
             y = self.decode(z, h, cond_emb)
+            if self.occ_weight > 0:
+                y = y * (y > self.threshold.abs().detach())
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
 
         samples = []
@@ -237,6 +248,8 @@ class ARVAE(BaseModel):
             z = torch.randn(1, self.latent_size, device=device)
             cond_emb = self._cond_embed(cond, 1, device)
             y = self.decode(z, h, cond_emb)
+            if self.occ_weight > 0:
+                y = y * (y > self.threshold.abs().detach())
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             samples.append(y)
 
@@ -284,6 +297,8 @@ class ARVAE(BaseModel):
             z = torch.randn(n_scenarios, self.latent_size, device=device)
             cond_emb = self._cond_embed(cond, n_scenarios, device)
             y = self.decode(z, h, cond_emb)                         # (n_sc, n_stations)
+            if self.occ_weight > 0:
+                y = y * (y > self.threshold.abs().detach())
             window = torch.cat([window[:, 1:, :], y.unsqueeze(1)], dim=1)
             days.append(y)
 

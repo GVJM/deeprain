@@ -103,6 +103,8 @@ ARCH_DEFAULTS = {
     "thresholded_glow_mc":      {"hidden_size": 128, "n_layers": 8},
     # ── AR Models ─────────────────────────────────────────────────────────────
     "ar_vae":            {"gru_hidden": 128, "hidden_size": 256, "window_size": 30},
+    "ar_vae_v2":         {"gru_hidden": 128, "hidden_size": 256, "window_size": 30,
+                          "occ_weight": 0.1},
     "ar_flow_match":     {"gru_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "n_sample_steps": 50, "window_size": 30},
     "ar_latent_fm":      {"gru_hidden": 128, "hidden_size": 256, "n_layers": 4,
@@ -139,7 +141,7 @@ ARCH_DEFAULTS = {
 _MC_MODELS = {"hurdle_simple_mc", "vae_mc", "real_nvp_mc", "glow_mc", "flow_match_mc", "flow_match_film_mc", "hurdle_vae_cond_mc", "latent_fm_mc", "hurdle_latent_fm_mc", "thresholded_latent_fm_mc", "thresholded_vae_mc", "thresholded_real_nvp_mc", "thresholded_glow_mc"}
 
 _TEMPORAL_MODELS = {
-    "ar_vae", "ar_flow_match", "ar_latent_fm",
+    "ar_vae", "ar_vae_v2", "ar_flow_match", "ar_latent_fm",
     "ar_real_nvp", "ar_real_nvp_lstm",
     "ar_glow", "ar_glow_lstm",
     "ar_mean_flow", "ar_mean_flow_lstm", "ar_mean_flow_v2",

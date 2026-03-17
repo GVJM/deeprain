@@ -214,6 +214,13 @@
         "batch_size": 128,
         "kl_warmup": 50,
         "latent_size": 64},
+    "ar_vae_v2": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 1000,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 100,
+        "latent_size": 64},
     "ar_flow_match": {
         "normalization_mode": "scale_only",
         "max_epochs": 300,

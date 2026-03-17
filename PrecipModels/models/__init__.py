@@ -76,6 +76,7 @@ _MODEL_REGISTRY = {
     "thresholded_real_nvp_mc":  ThresholdedRealNVPMc,
     "thresholded_glow_mc":      ThresholdedGlowMc,
     "ar_vae":            ARVAE,
+    "ar_vae_v2":         ARVAE,
     "ar_flow_match":     ARFlowMatch,
     "ar_latent_fm":      ARLatentFM,
     "ar_real_nvp":       ARRealNVP,
