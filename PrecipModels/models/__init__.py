@@ -86,6 +86,7 @@ _MODEL_REGISTRY = {
     "ar_mean_flow_lstm": ARMeanFlow,
     "ar_flow_map":       ARFlowMap,
     "ar_flow_map_lstm":  ARFlowMap,
+    "ar_flow_map_ms":    ARFlowMap,
 }
 
 MODEL_NAMES = list(_MODEL_REGISTRY.keys())
