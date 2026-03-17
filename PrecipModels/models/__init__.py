@@ -84,6 +84,7 @@ _MODEL_REGISTRY = {
     "ar_glow_lstm":      ARGlow,
     "ar_mean_flow":      ARMeanFlow,
     "ar_mean_flow_lstm": ARMeanFlow,
+    "ar_mean_flow_v2":   ARMeanFlow,
     "ar_flow_map":       ARFlowMap,
     "ar_flow_map_lstm":  ARFlowMap,
     "ar_flow_map_ms":    ARFlowMap,

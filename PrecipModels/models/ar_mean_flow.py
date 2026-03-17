@@ -85,7 +85,8 @@ class ARMeanFlow(BaseModel):
             'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
         }
 
-    def loss(self, x, beta=1.0):
+    def loss(self, x, beta=1.0, effective_mf_ratio=None):
+        mf_r = effective_mf_ratio if effective_mf_ratio is not None else self.mf_ratio
         if len(x) == 3:
             window, target, cond = x
         else:
@@ -103,7 +104,7 @@ class ARMeanFlow(BaseModel):
         v_cond = target - z_0
         t_emb  = self.t_embed(t)
 
-        is_mf  = torch.rand(B, device=device) < self.mf_ratio
+        is_mf  = torch.rand(B, device=device) < mf_r
         fm_idx = (~is_mf).nonzero(as_tuple=True)[0]
         mf_idx = is_mf.nonzero(as_tuple=True)[0]
 
@@ -138,10 +139,11 @@ class ARMeanFlow(BaseModel):
             du_dt = (u_t_plus - u_val.detach()) / self.jvp_eps
 
             correction = (jvp_z + du_dt).detach()
+            correction = correction / correction.norm(dim=-1, keepdim=True).clamp(min=1.0)
             u_target   = v_cond_mf - (t_mf - r_mf).unsqueeze(-1) * correction
             loss_mf    = F.mse_loss(u_val, u_target.detach())
 
-        total = (1 - self.mf_ratio) * loss_fm + self.mf_ratio * loss_mf
+        total = (1 - mf_r) * loss_fm + mf_r * loss_mf
         return {'total': total, 'fm_loss': loss_fm, 'mf_loss': loss_mf}
 
     def _generate_sample(self, h_cond, n):

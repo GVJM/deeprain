@@ -121,6 +121,10 @@ ARCH_DEFAULTS = {
     "ar_mean_flow_lstm": {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30,
                           "mf_ratio": 0.25, "rnn_type": "lstm"},
+    "ar_mean_flow_v2":   {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30,
+                          "mf_ratio": 0.25, "rnn_type": "gru",
+                          "jvp_eps": 0.05},
     "ar_flow_map":       {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru"},
     "ar_flow_map_lstm":  {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
@@ -138,7 +142,7 @@ _TEMPORAL_MODELS = {
     "ar_vae", "ar_flow_match", "ar_latent_fm",
     "ar_real_nvp", "ar_real_nvp_lstm",
     "ar_glow", "ar_glow_lstm",
-    "ar_mean_flow", "ar_mean_flow_lstm",
+    "ar_mean_flow", "ar_mean_flow_lstm", "ar_mean_flow_v2",
     "ar_flow_map", "ar_flow_map_lstm", "ar_flow_map_ms",
 }
 

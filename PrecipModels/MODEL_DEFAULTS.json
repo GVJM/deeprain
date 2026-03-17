@@ -271,6 +271,14 @@
         "batch_size": 128,
         "kl_warmup": 0,
         "latent_size": 0},
+    "ar_mean_flow_v2": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 1000,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+        "mf_warmup": 300},
     "ar_flow_map": {
         "normalization_mode": "scale_only",
         "max_epochs": 300,
