@@ -69,10 +69,13 @@ def create_app(
         path.write_text(json.dumps(entries, indent=2))
         remote = _config["dropbox_remote"]
         if remote:
-            subprocess.run(
+            result = subprocess.run(
                 ["rclone", "copy", str(path), f"{remote}/"],
                 capture_output=True,
+                text=True,
             )
+            if result.returncode != 0:
+                print(f"[server] rclone warning: {result.stderr.strip()}")
 
     def _check_timeouts():
         """Return timed-out running jobs to pending. Must be called inside _lock."""
@@ -117,7 +120,10 @@ def create_app(
     @app.get("/claim")
     def claim():
         machine = request.args.get("machine", "unknown")
-        gpu_tier = int(request.args.get("gpu_tier", 0))
+        try:
+            gpu_tier = int(request.args.get("gpu_tier", 0))
+        except ValueError:
+            gpu_tier = 0
         with _lock:
             _check_timeouts()
             for (qf, vn), record in _jobs.items():
@@ -142,9 +148,9 @@ def create_app(
     def complete():
         data = request.json or {}
         variant = data.get("variant_name", "")
-        queue_file = _find_queue_file(variant, data.get("queue_file", ""))
-        key = (queue_file, variant)
         with _lock:
+            queue_file = _find_queue_file(variant, data.get("queue_file", ""))
+            key = (queue_file, variant)
             if key not in _jobs:
                 return jsonify({"error": f"job not found: {variant}"}), 404
             record = _jobs[key]
@@ -169,16 +175,19 @@ def create_app(
                         "started_at": None,
                         "heartbeat_at": None,
                     }
-            _save_queue(queue_file)
+            # capture queue_file for saving outside the lock
+            queue_file_to_save = queue_file
+        # save OUTSIDE the lock so rclone does not block all workers
+        _save_queue(queue_file_to_save)
         return jsonify({"status": "ok"})
 
     @app.post("/heartbeat")
     def heartbeat():
         data = request.json or {}
         variant = data.get("variant_name", "")
-        queue_file = _find_queue_file(variant, data.get("queue_file", ""))
-        key = (queue_file, variant)
         with _lock:
+            queue_file = _find_queue_file(variant, data.get("queue_file", ""))
+            key = (queue_file, variant)
             if key not in _jobs:
                 return jsonify({"error": "job not found"}), 404
             _jobs[key]["heartbeat_at"] = time.time()
@@ -188,9 +197,9 @@ def create_app(
     def release():
         data = request.json or {}
         variant = data.get("variant_name", "")
-        queue_file = _find_queue_file(variant, data.get("queue_file", ""))
-        key = (queue_file, variant)
         with _lock:
+            queue_file = _find_queue_file(variant, data.get("queue_file", ""))
+            key = (queue_file, variant)
             if key not in _jobs:
                 return jsonify({"error": "job not found"}), 404
             record = _jobs[key]

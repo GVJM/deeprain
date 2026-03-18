@@ -53,7 +53,7 @@ def test_status_returns_all_jobs(client):
     assert all(j["status"] == "pending" for j in jobs)
 
 
-def test_claim_returns_highest_priority_pending_job(client):
+def test_claim_returns_a_pending_job(client):
     r = client.get("/claim?machine=worker1&gpu_tier=1")
     assert r.status_code == 200
     data = r.get_json()
@@ -137,3 +137,37 @@ def test_heartbeat_updates_timestamp(client):
     })
     assert r.status_code == 200
     assert r.get_json()["status"] == "ok"
+
+
+def test_heartbeat_timeout_returns_job_to_pending():
+    """A running job with no heartbeat returns to pending after timeout."""
+    from queue_server import create_app
+    import json, time
+    from pathlib import Path
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        entries = [{"variant_name": "timeout_job", "model": "vae",
+                    "job_type": "train", "gpu_tier": 1, "output_dir": "outputs"}]
+        qfile = Path(tmp) / "TRAINING_QUEUE.json"
+        qfile.write_text(json.dumps(entries))
+
+        # Very short timeout (1 second)
+        app = create_app(queues_dir=tmp, timeout_secs=1, machine="test", dropbox_remote="")
+        app.config["TESTING"] = True
+        with app.test_client() as c:
+            # Claim the job
+            r = c.get("/claim?machine=worker1&gpu_tier=1")
+            assert r.get_json()["status"] == "ok"
+
+            # Verify it's running
+            jobs = c.get("/status").get_json()
+            assert any(j["status"] == "running" for j in jobs)
+
+            # Wait for timeout
+            time.sleep(1.5)
+
+            # Next /status call triggers timeout check
+            jobs = c.get("/status").get_json()
+            assert all(j["status"] == "pending" for j in jobs), \
+                "Timed-out job must return to pending"
