@@ -122,7 +122,7 @@ def run_job(job: dict, args) -> bool:
         model_pt_path = out_path / "model.pt"
         if (metrics_path.exists() and model_pt_path.exists()
                 and metrics_path.stat().st_mtime > model_pt_path.stat().st_mtime):
-            print(f"[worker] {job['variant_name']}: metrics.json up-to-date, skipping (crash recovery)")
+            print(f"[worker] {job.get('variant_name', 'unknown')}: metrics.json up-to-date, skipping (crash recovery)")
             return True
         result = subprocess.run([sys.executable, "evaluate.py", "--model_dir", str(out_path)])
         return result.returncode == 0
@@ -149,18 +149,28 @@ def main():
     )
     parser.add_argument("--server", help="queue_server URL (e.g. http://oracle-ip:5000)")
     parser.add_argument("--machine", help="Machine identifier (e.g. home_pc)")
-    parser.add_argument("--gpu_tier", type=int, default=0)
-    parser.add_argument("--poll_interval", type=int, default=30)
-    parser.add_argument("--output_base", default=".")
-    parser.add_argument("--dropbox_remote", default="")
+    parser.add_argument("--gpu_tier", type=int, default=None)
+    parser.add_argument("--poll_interval", type=int, default=None)
+    parser.add_argument("--output_base", default=None)
+    parser.add_argument("--dropbox_remote", default=None)
     parser.add_argument("--config", default=None, help="JSON config file")
     args = parser.parse_args()
 
     if args.config:
         cfg = json.loads(Path(args.config).read_text())
         for k, v in cfg.items():
-            if getattr(args, k, None) is None:
+            if not k.startswith("_") and getattr(args, k, None) is None:
                 setattr(args, k, v)
+
+    # Apply final defaults for args that were neither set on CLI nor in config
+    if args.gpu_tier is None:
+        args.gpu_tier = 0
+    if args.poll_interval is None:
+        args.poll_interval = 30
+    if args.output_base is None:
+        args.output_base = "."
+    if args.dropbox_remote is None:
+        args.dropbox_remote = ""
 
     if not args.server or not args.machine:
         parser.error("--server and --machine are required (or set in --config)")
