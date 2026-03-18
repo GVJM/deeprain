@@ -18,8 +18,8 @@ from argparse import Namespace
 from datetime import datetime
 from pathlib import Path
 
-QUEUE_FILE  = Path(__file__).parent / "TRAINING_QUEUE.json"
-OUTPUTS_DIR = Path(__file__).parent / "outputs"
+_DEFAULT_QUEUE = Path(__file__).parent / "TRAINING_QUEUE.json"
+OUTPUTS_DIR    = Path(__file__).parent / "outputs"
 LOG_FILE    = OUTPUTS_DIR / "batch_log.jsonl"
 
 # All fields train_model(args) reads; None → falls back to MODEL_DEFAULTS / ARCH_DEFAULTS
@@ -100,9 +100,12 @@ def main():
     p.add_argument("--only",   nargs="+", metavar="VARIANT")
     p.add_argument("--data_path", default=None)
     p.add_argument("--device",    default=None)
+    p.add_argument("--queue",     default=str(_DEFAULT_QUEUE),
+                   help="Queue JSON file to use (default: TRAINING_QUEUE.json)")
     args = p.parse_args()
 
-    with open(QUEUE_FILE) as f:
+    queue_file = Path(args.queue)
+    with open(queue_file) as f:
         queue = json.load(f)
 
     # Validate uniqueness
@@ -189,7 +192,7 @@ def main():
     print(f"Batch complete: {n_ok} OK, {n_err} errors  |  Total time: {fmt_duration(total_s)}")
     if LOG_FILE.exists():
         print(f"Log written to: {LOG_FILE}")
-    print_table(json.load(open(QUEUE_FILE)))
+    print_table(json.load(open(queue_file)))
 
 if __name__ == "__main__":
     main()

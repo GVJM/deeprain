@@ -1,0 +1,213 @@
+[
+  {
+    "variant_name": "sabesp_24_ar_vae",
+    "model": "ar_vae",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "gru_hidden": 32,
+    "hidden_size": 64,
+    "latent_size": 16
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_match",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "gru_hidden": 32,
+    "hidden_size": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_latent_fm",
+    "model": "ar_latent_fm",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "gru_hidden": 32,
+    "hidden_size": 64,
+    "latent_size": 16
+  },
+  {
+    "variant_name": "sabesp_24_ar_real_nvp",
+    "model": "ar_real_nvp",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "gru_hidden": 32,
+    "hidden_size": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_glow",
+    "model": "ar_glow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "gru_hidden": 32,
+    "hidden_size": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_mean_flow",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "rnn_hidden": 32,
+    "hidden_size": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_map",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "rnn_hidden": 32,
+    "hidden_size": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_mean_flow_h64_l2",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 2,
+    "rnn_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_mean_flow_h64_l4",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 4,
+    "rnn_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_mean_flow_h64_l6",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 6,
+    "rnn_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_mean_flow_h128_l2",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 2,
+    "rnn_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_mean_flow_h128_l4",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 4,
+    "rnn_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_mean_flow_h128_l6",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 6,
+    "rnn_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_map_h64_l2",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 2,
+    "rnn_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_map_h64_l4",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 4,
+    "rnn_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_map_h64_l6",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 6,
+    "rnn_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_map_h128_l2",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 2,
+    "rnn_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_map_h128_l4",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 4,
+    "rnn_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_map_h128_l6",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 6,
+    "rnn_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_match_h64_l2",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 2,
+    "gru_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_match_h64_l4",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 4,
+    "gru_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_match_h64_l6",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 64,
+    "n_layers": 6,
+    "gru_hidden": 32
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_match_h128_l2",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 2,
+    "gru_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_match_h128_l4",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 4,
+    "gru_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_flow_match_h128_l6",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "hidden_size": 128,
+    "n_layers": 6,
+    "gru_hidden": 64
+  },
+  {
+    "variant_name": "sabesp_24_ar_vae_h64_lat16",
+    "model": "ar_vae",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "gru_hidden": 32,
+    "hidden_size": 64,
+    "latent_size": 16
+  },
+  {
+    "variant_name": "sabesp_24_ar_vae_h128_lat32",
+    "model": "ar_vae",
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "gru_hidden": 64,
+    "hidden_size": 128,
+    "latent_size": 32
+  }
+]

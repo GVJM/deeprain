@@ -407,6 +407,219 @@ def evaluate_model(
     return metrics
 
 
+
+# ──────────────────────────────────────────────────────────
+# TEMPORAL METRICS (scenario-level: (n_sc, T, S) vs (N, S))
+# ──────────────────────────────────────────────────────────
+
+def _autocorr_1d(series: np.ndarray, max_lag: int = 30) -> np.ndarray:
+    """Autocorrelação lag-1..max_lag de uma série 1-D."""
+    n = len(series)
+    mu = series.mean()
+    var = ((series - mu) ** 2).mean()
+    if var < 1e-10:
+        return np.zeros(max_lag)
+    return np.array([
+        np.mean((series[:n - lag] - mu) * (series[lag:] - mu)) / var
+        for lag in range(1, max_lag + 1)
+    ])
+
+
+def _mean_autocorr(data: np.ndarray, max_lag: int = 30) -> np.ndarray:
+    """Autocorrelação média sobre as estações. data: (T, S)"""
+    return np.stack([_autocorr_1d(data[:, s], max_lag) for s in range(data.shape[1])]).mean(axis=0)
+
+
+def multi_lag_autocorr_rmse(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+    max_lag: int = 30,
+) -> float:
+    """
+    RMSE da autocorrelação média (lags 1..max_lag) entre cenários e observado.
+
+    Args:
+        scenarios: (n_sc, T, S) — cenários em mm/dia
+        observed:  (N, S) — dados observados em mm/dia
+
+    Returns:
+        float — RMSE médio sobre os lags e estações
+    """
+    obs_acf = _mean_autocorr(observed, max_lag)          # (max_lag,)
+    sc_acfs = np.stack([_mean_autocorr(scenarios[i], max_lag)
+                        for i in range(scenarios.shape[0])])
+    sc_mean_acf = sc_acfs.mean(axis=0)                   # (max_lag,)
+    return float(np.sqrt(np.mean((obs_acf - sc_mean_acf) ** 2)))
+
+
+def transition_probability_error(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+    threshold: float = 0.1,
+) -> dict:
+    """
+    Erro nas probabilidades de transição 2×2 (wet/dry) entre cenários e observado.
+
+    Returns:
+        dict com 'p_ww', 'p_wd', 'p_dw', 'p_dd' (erro absoluto médio por estação)
+        e 'mean' (média dos 4 erros)
+    """
+    def _trans(data: np.ndarray):
+        """Calcula P(wet|wet), P(wet|dry), P(dry|wet), P(dry|dry) por estação."""
+        S = data.shape[1]
+        p_ww = np.zeros(S); p_wd = np.zeros(S)
+        p_dw = np.zeros(S); p_dd = np.zeros(S)
+        for i in range(S):
+            wet = (data[:, i] > threshold).astype(float)
+            n_w = wet[:-1].sum(); n_d = (1 - wet[:-1]).sum()
+            p_ww[i] = (wet[:-1] * wet[1:]).sum() / max(n_w, 1)
+            p_wd[i] = (wet[:-1] * (1 - wet[1:])).sum() / max(n_w, 1)
+            p_dw[i] = ((1 - wet[:-1]) * wet[1:]).sum() / max(n_d, 1)
+            p_dd[i] = ((1 - wet[:-1]) * (1 - wet[1:])).sum() / max(n_d, 1)
+        return p_ww, p_wd, p_dw, p_dd
+
+    obs_ww, obs_wd, obs_dw, obs_dd = _trans(observed)
+
+    # Average transition probs across scenarios
+    sc_ww = np.mean([_trans(scenarios[i])[0] for i in range(scenarios.shape[0])], axis=0)
+    sc_wd = np.mean([_trans(scenarios[i])[1] for i in range(scenarios.shape[0])], axis=0)
+    sc_dw = np.mean([_trans(scenarios[i])[2] for i in range(scenarios.shape[0])], axis=0)
+    sc_dd = np.mean([_trans(scenarios[i])[3] for i in range(scenarios.shape[0])], axis=0)
+
+    e_ww = float(np.abs(obs_ww - sc_ww).mean())
+    e_wd = float(np.abs(obs_wd - sc_wd).mean())
+    e_dw = float(np.abs(obs_dw - sc_dw).mean())
+    e_dd = float(np.abs(obs_dd - sc_dd).mean())
+
+    return {
+        'p_ww': e_ww, 'p_wd': e_wd, 'p_dw': e_dw, 'p_dd': e_dd,
+        'mean': float(np.mean([e_ww, e_wd, e_dw, e_dd])),
+    }
+
+
+def max_consecutive_dry_days_error(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+    threshold: float = 0.1,
+) -> float:
+    """
+    Erro no número médio de dias secos consecutivos máximos por estação.
+
+    Returns:
+        float — erro absoluto médio sobre estações
+    """
+    def _max_cdd(data: np.ndarray) -> np.ndarray:
+        S = data.shape[1]
+        result = np.zeros(S)
+        for i in range(S):
+            dry = data[:, i] <= threshold
+            max_run = cur = 0
+            for v in dry:
+                cur = cur + 1 if v else 0
+                max_run = max(max_run, cur)
+            result[i] = max_run
+        return result
+
+    obs_cdd = _max_cdd(observed)
+    sc_cdd = np.mean([_max_cdd(scenarios[i]) for i in range(scenarios.shape[0])], axis=0)
+    return float(np.abs(obs_cdd - sc_cdd).mean())
+
+
+def annual_max_daily_error(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+) -> float:
+    """
+    Erro no máximo diário anual médio por estação.
+
+    Returns:
+        float — erro absoluto médio sobre estações
+    """
+    obs_max = observed.max(axis=0)  # (S,)
+    sc_max = np.mean([scenarios[i].max(axis=0) for i in range(scenarios.shape[0])], axis=0)
+    return float(np.abs(obs_max - sc_max).mean())
+
+
+def monthly_mean_error(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+    obs_months: np.ndarray,
+    start_month: int = 0,
+) -> float:
+    """
+    Erro na precipitação média mensal (mm/dia), média sobre estações e meses.
+
+    Args:
+        scenarios:   (n_sc, T, S) — cenários
+        observed:    (N, S) — dados observados
+        obs_months:  (N,) — mês (0..11) para cada linha de observed
+        start_month: mês inicial dos cenários (0=Jan) para atribuição cíclica
+
+    Returns:
+        float — MAE médio sobre meses e estações
+    """
+    obs_mm = np.array([observed[obs_months == m].mean(axis=0) if (obs_months == m).any()
+                       else np.zeros(observed.shape[1]) for m in range(12)])  # (12, S)
+
+    T = scenarios.shape[1]
+    sc_months = np.array([(start_month + t) % 12 for t in range(T)])
+
+    sc_mm_all = []
+    for i in range(scenarios.shape[0]):
+        sc_mm_all.append(np.array([scenarios[i][sc_months == m].mean(axis=0) if (sc_months == m).any()
+                                   else np.zeros(observed.shape[1]) for m in range(12)]))
+    sc_mm = np.mean(sc_mm_all, axis=0)  # (12, S)
+
+    return float(np.abs(obs_mm - sc_mm).mean())
+
+
+def monthly_variance_error(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+    obs_months: np.ndarray,
+    start_month: int = 0,
+) -> float:
+    """
+    Erro na variância mensal da precipitação, média sobre estações e meses.
+
+    Returns:
+        float — MAE médio sobre meses e estações
+    """
+    obs_var = np.array([observed[obs_months == m].var(axis=0) if (obs_months == m).any()
+                        else np.zeros(observed.shape[1]) for m in range(12)])  # (12, S)
+
+    T = scenarios.shape[1]
+    sc_months = np.array([(start_month + t) % 12 for t in range(T)])
+
+    sc_var_all = []
+    for i in range(scenarios.shape[0]):
+        sc_var_all.append(np.array([scenarios[i][sc_months == m].var(axis=0) if (sc_months == m).any()
+                                    else np.zeros(observed.shape[1]) for m in range(12)]))
+    sc_var = np.mean(sc_var_all, axis=0)  # (12, S)
+
+    return float(np.abs(obs_var - sc_var).mean())
+
+
+def inter_scenario_cv(scenarios: np.ndarray) -> float:
+    """
+    Coeficiente de variação entre cenários (diversidade).
+
+    CV = std(média_diária_por_cenário) / mean(média_diária_por_cenário)
+    Maior = mais diverso.
+
+    Args:
+        scenarios: (n_sc, T, S) — cenários em mm/dia
+
+    Returns:
+        float — CV (adimensional)
+    """
+    sc_means = scenarios.mean(axis=(1, 2))  # (n_sc,)
+    mu = sc_means.mean()
+    if mu < 1e-10:
+        return 0.0
+    return float(sc_means.std() / mu)
+
+
 def _print_report(metrics: dict, station_names: list):
     """Imprime relatório de métricas formatado."""
     print("\n" + "=" * 55)

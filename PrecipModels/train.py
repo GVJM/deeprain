@@ -822,8 +822,8 @@ def train_model(args):
         "rnn_type":       _arch("rnn_type"),
         "n_steps":        _arch("n_steps"),
         "mf_ratio":       _arch("mf_ratio"),
-        "jvp_eps":        extra_model_kwargs.get("jvp_eps"),
-        "occ_weight":     extra_model_kwargs.get("occ_weight"),
+        "jvp_eps":        _arch("jvp_eps"),
+        "occ_weight":     _arch("occ_weight"),
     }
     # Parâmetros específicos do LDM (estágio 2: DDPM)
     if model_name == "ldm":

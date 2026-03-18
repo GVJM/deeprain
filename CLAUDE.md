@@ -27,6 +27,16 @@ python compare.py
 python compare.py --max_epochs 200 --n_samples 1000   # quick test
 python compare.py --skip_training                      # re-run analysis on saved metrics
 
+# Compare all trained AR models (Tier 1 + Tier 2)
+python compare_ar.py --skip_rollouts                          # Tier 1 only (<1 min, no GPU)
+python compare_ar.py --models ar_vae ar_mean_flow --n_days 30 --n_scenarios 5  # quick Tier 2 test
+python compare_ar.py --n_days 365 --n_scenarios 50            # full run
+python compare_ar.py --skip_rollouts --output_dir ./outputs_sabesp  # if AR models live in outputs_sabesp/
+
+# Ablation study for hurdle_vae_cond
+python ablation_hurdle_vae_cond.py --skip_training            # re-plot saved results
+python ablation_hurdle_vae_cond.py --max_epochs 500 --n_samples 2000  # full ablation
+
 # Batch training queue
 python batch_train.py           # run all pending jobs in TRAINING_QUEUE.json
 
@@ -53,9 +63,9 @@ Outputs go to `outputs/<name>/`: `model.pt` (or `copula.pkl`), `config.json`, `m
 `hurdle_vae_cond`, `hurdle_vae_cond_nll`
 
 **Autoregressive (`ar_*`):**
-`ar_vae`, `ar_flow_match`, `ar_latent_fm`
+`ar_vae`, `ar_vae_v2`, `ar_flow_match`, `ar_latent_fm`
 `ar_real_nvp`, `ar_real_nvp_lstm`, `ar_glow`, `ar_glow_lstm`
-`ar_mean_flow`, `ar_mean_flow_lstm`, `ar_flow_map`, `ar_flow_map_lstm`
+`ar_mean_flow`, `ar_mean_flow_lstm`, `ar_mean_flow_v2`, `ar_flow_map`, `ar_flow_map_lstm`, `ar_flow_map_ms`
 
 **Temporal/Hurdle-Temporal:**
 `hurdle_temporal`
@@ -107,3 +117,9 @@ dados_barragens_btg/    # BTG dam data
 - `KMP_DUPLICATE_LIB_OK=TRUE` is set automatically in train.py (Intel MKL conflict)
 - **AR models require SABESP path:** default data path is INMET; always pass `--data_path ../dados_sabesp/dayprecip.dat` for AR/temporal models
 - **ARGlow inverse cache:** `_InvLinearLU.inverse()` caches `W⁻¹`; cleared on `train()`. Without it, evaluation does 8000 matrix inversions instead of 8
+- **`compare_ar.py` output_dir:** AR checkpoints default to `./outputs`; if models were trained to `outputs_sabesp/`, pass `--output_dir ./outputs_sabesp`
+- **st_362 outlier station:** Wasserstein 50–100× higher than all other 91 SABESP stations across every model. Excluded from per-station win ranking but shown in heatmaps. Constant `OUTLIER_STATION` in `compare_ar.py`.
+- **`hurdle_temporal` is NOT in `_TEMPORAL_MODELS`** (`train.py` line 134): uses a different training path; AR evaluation caps do not apply to it.
+- **`--data_path` string-matched against constants:** `data_utils.py` compares the path string to `SABESP_DATA_PATH`/`DEFAULT_DATA_PATH`; relative paths only work from `PrecipModels/`. Use absolute paths when running from worktrees or non-standard CWDs.
+- **New conditional `nn.Parameter` in AR models requires 3 coordinated changes:** (1) guard creation with `if hyperparam > 0` in model `__init__`, (2) save hyperparam to config dict in `train.py` (~line 824), (3) add to float-param loop in `compare_ar.py`'s `load_ar_model()`. Missing any one causes checkpoint load failure on rollout.
+- **`compare_ar.py` rollout loader:** reads int arch params automatically but float params (`occ_weight`, `jvp_eps`, `mf_ratio`) must be explicitly listed in the float-param loop (~line 240).
