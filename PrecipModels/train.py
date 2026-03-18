@@ -936,6 +936,10 @@ def train_model(args):
             pickle.dump(model, f)
         print(f"[{variant_name}] Salvo em {save_path}")
 
+        if getattr(args, "skip_eval", False):
+            print(f"[{variant_name}] --skip_eval set: skipping evaluation (metrics.json will not be written).")
+            return
+
         metrics = evaluate_model(
             model,
             eval_raw,
@@ -1185,6 +1189,9 @@ def train_model(args):
     plot_training_history(history, out_dir, variant_name)
 
     # ── Métricas ──
+    if getattr(args, "skip_eval", False):
+        print(f"[{variant_name}] --skip_eval set: skipping evaluation (metrics.json will not be written).")
+        return
     model.eval()
     # AR/temporal models do sequential rollouts — cap samples and timing trials
     # to keep evaluation under ~5 min instead of 30+ min
@@ -1304,6 +1311,9 @@ def main():
                         help="Finite-difference epsilon for du/dt in MeanFlow (ar_mean_flow family)")
     parser.add_argument("--occ_weight", type=float, default=None,
                         help="Weight of occurrence BCE loss (ar_vae_v2)")
+    parser.add_argument("--skip_eval", action="store_true",
+                        help="Skip post-training evaluation; do not write metrics.json. "
+                             "Used by distributed worker — eval runs as a separate job.")
 
     parser.add_argument("--optimize", action="store_true",
                         help="Enable Intel CPU optimizations: torch.compile, BF16 autocast, thread tuning, IPEX if available")
