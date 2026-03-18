@@ -38,7 +38,15 @@ python ablation_hurdle_vae_cond.py --skip_training            # re-plot saved re
 python ablation_hurdle_vae_cond.py --max_epochs 500 --n_samples 2000  # full ablation
 
 # Batch training queue
-python batch_train.py           # run all pending jobs in TRAINING_QUEUE.json
+python batch_train.py                          # run all pending jobs in TRAINING_QUEUE.json
+python batch_train.py --queue QUEUE_foo.json   # use alternate queue file
+python batch_train.py --only ar_vae --status   # status / single variant
+
+# Queue generator — auto-sizes architecture for a new dataset
+python make_queue.py --data_path ../dados_sabesp/data_precip.dat \
+                     --prefix dp24 --output QUEUE_precip24.json
+python make_queue.py --data_path ../dados_sabesp/data_precip.dat \
+                     --prefix dp24 --tiers 0 1 --append TRAINING_QUEUE.json
 
 # Validation and visualization
 python validate_holdout.py
@@ -86,6 +94,7 @@ PrecipModels/
 ├── datasets.py         # TemporalDataset, TemporalCondDataset
 ├── generate_scenarios.py # AR scenario rollout + evaluation
 ├── batch_train.py      # queue-based batch training runner
+├── make_queue.py       # generate TRAINING_QUEUE.json for new datasets (auto-sizes arch)
 ├── MODEL_DEFAULTS.json # per-model hyperparameter defaults
 ├── models/             # all model implementations
 │   ├── __init__.py     # model registry + get_model()
@@ -106,7 +115,7 @@ dados_barragens_btg/    # BTG dam data
 
 ## Common Gotchas
 
-- **AR evaluation bottleneck:** `evaluate_model()` calls `sample(n)` 6× total; for AR models this is O(n) sequential steps. Mitigated in `train.py` (200 samples, 1 timing trial for `_TEMPORAL_MODELS`). Change caps in the `is_temporal` block ~line 1153.
+- **AR evaluation bottleneck:** `evaluate_model()` calls `sample(n)` 6× total; for AR models this is O(n) sequential steps. Mitigated in `train.py` (200 samples, 1 timing trial for `_TEMPORAL_MODELS`). Change caps in the `is_temporal` block ~line 1192.
 - **AR `sample()` progress:** All AR models log progress every 25% of steps (`flush=True`). Do not add duplicate logging.
 - **Batch log:** `outputs/batch_log.jsonl` — one JSON record per job, appended atomically. Survives crashes; grep by `variant` field.
 - **KL collapse (VAE):** increase `--kl_warmup` (try 100+)
@@ -119,7 +128,7 @@ dados_barragens_btg/    # BTG dam data
 - **ARGlow inverse cache:** `_InvLinearLU.inverse()` caches `W⁻¹`; cleared on `train()`. Without it, evaluation does 8000 matrix inversions instead of 8
 - **`compare_ar.py` output_dir:** AR checkpoints default to `./outputs`; if models were trained to `outputs_sabesp/`, pass `--output_dir ./outputs_sabesp`
 - **st_362 outlier station:** Wasserstein 50–100× higher than all other 91 SABESP stations across every model. Excluded from per-station win ranking but shown in heatmaps. Constant `OUTLIER_STATION` in `compare_ar.py`.
-- **`hurdle_temporal` is NOT in `_TEMPORAL_MODELS`** (`train.py` line 134): uses a different training path; AR evaluation caps do not apply to it.
-- **`--data_path` string-matched against constants:** `data_utils.py` compares the path string to `SABESP_DATA_PATH`/`DEFAULT_DATA_PATH`; relative paths only work from `PrecipModels/`. Use absolute paths when running from worktrees or non-standard CWDs.
+- **`hurdle_temporal` is NOT in `_TEMPORAL_MODELS`** (`train.py` ~line 143): uses a different training path; AR evaluation caps do not apply to it.
+- **`--data_path` string-matched against `DEFAULT_DATA_PATH`:** only the exact string `"../dados/inmet_relevant_data.csv"` (or `"../dados_barragens_btg/inmet_relevant_data.csv"`) triggers the BTG/INMET loader; everything else routes to SABESP. Absolute paths work correctly since ceb793c. Relative paths still require running from `PrecipModels/`.
 - **New conditional `nn.Parameter` in AR models requires 3 coordinated changes:** (1) guard creation with `if hyperparam > 0` in model `__init__`, (2) save hyperparam to config dict in `train.py` (~line 824), (3) add to float-param loop in `compare_ar.py`'s `load_ar_model()`. Missing any one causes checkpoint load failure on rollout.
 - **`compare_ar.py` rollout loader:** reads int arch params automatically but float params (`occ_weight`, `jvp_eps`, `mf_ratio`) must be explicitly listed in the float-param loop (~line 240).
