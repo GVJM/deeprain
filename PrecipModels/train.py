@@ -794,6 +794,7 @@ def train_model(args):
     config = {
         "model": model_name,
         "variant_name": variant_name,
+        "data_path": args.data_path,
         "max_epochs": max_epochs,
         "lr": lr,
         "batch_size": batch_size,
