@@ -1,54 +1,431 @@
 [
-  {"variant_name": "ar_vae",            "model": "ar_vae",            "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_latent_fm",      "model": "ar_latent_fm",      "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_real_nvp",       "model": "ar_real_nvp",       "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_glow",           "model": "ar_glow",           "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_mean_flow",      "model": "ar_mean_flow",      "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_flow_map",       "model": "ar_flow_map",       "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_flow_match",     "model": "ar_flow_match",     "data_path": "../dados_sabesp/dayprecip.dat"},
-
-  {"variant_name": "ar_vae_small",  "model": "ar_vae", "data_path": "../dados_sabesp/dayprecip.dat", "gru_hidden": 64,  "hidden_size": 128, "latent_size": 32},
-  {"variant_name": "ar_vae_medium", "model": "ar_vae", "data_path": "../dados_sabesp/dayprecip.dat", "gru_hidden": 128, "hidden_size": 256, "latent_size": 64},
-  {"variant_name": "ar_vae_large",  "model": "ar_vae", "data_path": "../dados_sabesp/dayprecip.dat", "gru_hidden": 256, "hidden_size": 512, "latent_size": 128},
-
-  {"variant_name": "ar_real_nvp_c4_gru",   "model": "ar_real_nvp",      "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 4},
-  {"variant_name": "ar_real_nvp_c8_gru",   "model": "ar_real_nvp",      "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 8},
-  {"variant_name": "ar_real_nvp_c16_gru",  "model": "ar_real_nvp",      "data_path": "../dados_sabesp/dayprecip.dat", "n_coupling": 16},
-
-  {"variant_name": "ar_glow_s4_gru",   "model": "ar_glow",      "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 4},
-  {"variant_name": "ar_glow_s8_gru",   "model": "ar_glow",      "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 8},
-  {"variant_name": "ar_glow_s16_gru",  "model": "ar_glow",      "data_path": "../dados_sabesp/dayprecip.dat", "n_steps": 16},
-
-  {"variant_name": "ar_mean_flow_h128_l2", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 2},
-  {"variant_name": "ar_mean_flow_h128_l4", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 4},
-  {"variant_name": "ar_mean_flow_h128_l6", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 6},
-  {"variant_name": "ar_mean_flow_h256_l2", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 2},
-  {"variant_name": "ar_mean_flow_h256_l4", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 4},
-  {"variant_name": "ar_mean_flow_h256_l6", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 6},
-  {"variant_name": "ar_mean_flow_h512_l2", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 2},
-  {"variant_name": "ar_mean_flow_h512_l4", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 4},
-  {"variant_name": "ar_mean_flow_h512_l6", "model": "ar_mean_flow", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 6},
-
-  {"variant_name": "ar_flow_map_h128_l2", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 2},
-  {"variant_name": "ar_flow_map_h128_l4", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 4},
-  {"variant_name": "ar_flow_map_h128_l6", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 6},
-  {"variant_name": "ar_flow_map_h256_l2", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 2},
-  {"variant_name": "ar_flow_map_h256_l4", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 4},
-  {"variant_name": "ar_flow_map_h256_l6", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 6},
-  {"variant_name": "ar_flow_map_h512_l2", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 2},
-  {"variant_name": "ar_flow_map_h512_l4", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 4},
-  {"variant_name": "ar_flow_map_h512_l6", "model": "ar_flow_map", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 6},
-
-  {"variant_name": "ar_flow_match_h128_l2", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 2},
-  {"variant_name": "ar_flow_match_h128_l4", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 4},
-  {"variant_name": "ar_flow_match_h128_l6", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 128, "n_layers": 6},
-  {"variant_name": "ar_flow_match_h256_l2", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 2},
-  {"variant_name": "ar_flow_match_h256_l4", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 4},
-  {"variant_name": "ar_flow_match_h256_l6", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 256, "n_layers": 6},
-  {"variant_name": "ar_flow_match_h512_l2", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 2},
-  {"variant_name": "ar_flow_match_h512_l4", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 4},
-  {"variant_name": "ar_flow_match_h512_l6", "model": "ar_flow_match", "data_path": "../dados_sabesp/dayprecip.dat", "hidden_size": 512, "n_layers": 6},
-
-  {"variant_name": "ar_mean_flow_v2",  "model": "ar_mean_flow_v2",  "data_path": "../dados_sabesp/dayprecip.dat"},
-  {"variant_name": "ar_vae_v2",        "model": "ar_vae_v2",         "data_path": "../dados_sabesp/dayprecip.dat"}
+  {
+    "variant_name": "ar_vae",
+    "model": "ar_vae",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_latent_fm",
+    "model": "ar_latent_fm",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_real_nvp",
+    "model": "ar_real_nvp",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_glow",
+    "model": "ar_glow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_vae_small",
+    "model": "ar_vae",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "gru_hidden": 64,
+    "hidden_size": 128,
+    "latent_size": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_vae_medium",
+    "model": "ar_vae",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "gru_hidden": 128,
+    "hidden_size": 256,
+    "latent_size": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_vae_large",
+    "model": "ar_vae",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "gru_hidden": 256,
+    "hidden_size": 512,
+    "latent_size": 128,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_real_nvp_c4_gru",
+    "model": "ar_real_nvp",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "n_coupling": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_real_nvp_c8_gru",
+    "model": "ar_real_nvp",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "n_coupling": 8,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_real_nvp_c16_gru",
+    "model": "ar_real_nvp",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "n_coupling": 16,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_glow_s4_gru",
+    "model": "ar_glow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "n_steps": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_glow_s8_gru",
+    "model": "ar_glow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "n_steps": 8,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_glow_s16_gru",
+    "model": "ar_glow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "n_steps": 16,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h128_l2",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h128_l4",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h128_l6",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h256_l2",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h256_l4",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h256_l6",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h512_l2",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h512_l4",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_h512_l6",
+    "model": "ar_mean_flow",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h128_l2",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h128_l4",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h128_l6",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h256_l2",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h256_l4",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h256_l6",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h512_l2",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h512_l4",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_map_h512_l6",
+    "model": "ar_flow_map",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h128_l2",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h128_l4",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h128_l6",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 128,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h256_l2",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h256_l4",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h256_l6",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 256,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h512_l2",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 2,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h512_l4",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 4,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_flow_match_h512_l6",
+    "model": "ar_flow_match",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "hidden_size": 512,
+    "n_layers": 6,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_mean_flow_v2",
+    "model": "ar_mean_flow_v2",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  },
+  {
+    "variant_name": "ar_vae_v2",
+    "model": "ar_vae_v2",
+    "data_path": "../dados_sabesp/dayprecip.dat",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
+  }
 ]

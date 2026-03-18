@@ -111,12 +111,16 @@ _TIER0_MODELS = [
 ]
 
 
-def _base_entry(model: str, prefix: str, data_path: str, arch: dict) -> dict:
+def _base_entry(model: str, prefix: str, data_path: str, arch: dict,
+                gpu_tier: int = 1, output_dir: str = "outputs") -> dict:
     """Build one Tier-0 queue entry for `model`."""
     entry = {
         "variant_name": f"{prefix}_{model}",
         "model":        model,
         "data_path":    data_path,
+        "job_type":     "train",
+        "gpu_tier":     gpu_tier,
+        "output_dir":   output_dir,
     }
     if model in _GRU_MODELS:
         entry["gru_hidden"] = arch["rnn_hidden"]   # gru_hidden = hidden_size // 2
@@ -128,11 +132,14 @@ def _base_entry(model: str, prefix: str, data_path: str, arch: dict) -> dict:
     return entry
 
 
-def build_tier0(prefix: str, data_path: str, arch: dict) -> list:
-    return [_base_entry(m, prefix, data_path, arch) for m in _TIER0_MODELS]
+def build_tier0(prefix: str, data_path: str, arch: dict,
+                gpu_tier: int = 1, output_dir: str = "outputs") -> list:
+    return [_base_entry(m, prefix, data_path, arch, gpu_tier=gpu_tier, output_dir=output_dir)
+            for m in _TIER0_MODELS]
 
 
-def build_tier1(prefix: str, data_path: str, arch: dict) -> list:
+def build_tier1(prefix: str, data_path: str, arch: dict,
+                gpu_tier: int = 1, output_dir: str = "outputs") -> list:
     """Architecture sweep entries scaled to dataset size."""
     H = arch["hidden_size"]
     # Three hidden sizes: H//2, H, H*2 — clamped to [64, 512]
@@ -149,6 +156,9 @@ def build_tier1(prefix: str, data_path: str, arch: dict) -> list:
                     "variant_name": vname,
                     "model":        model,
                     "data_path":    data_path,
+                    "job_type":     "train",
+                    "gpu_tier":     gpu_tier,
+                    "output_dir":   output_dir,
                     "hidden_size":  h,
                     "n_layers":     nl,
                 }
@@ -170,6 +180,9 @@ def build_tier1(prefix: str, data_path: str, arch: dict) -> list:
             "variant_name": vname,
             "model":        "ar_vae",
             "data_path":    data_path,
+            "job_type":     "train",
+            "gpu_tier":     gpu_tier,
+            "output_dir":   output_dir,
             "gru_hidden":   h // 2,
             "hidden_size":  h,
             "latent_size":  lat,
@@ -197,6 +210,10 @@ def main():
     p.add_argument("--tiers",      nargs="+", type=int, default=[0],
                    choices=[0, 1],
                    help="Which tier(s) to generate. 0=base models, 1=arch sweep (default: 0)")
+    p.add_argument("--gpu_tier", type=int, default=1, choices=[0, 1, 2],
+                   help="GPU tier for all generated entries (0=CPU, 1=small GPU, 2=large GPU)")
+    p.add_argument("--output_dir", default="outputs",
+                   help="output_dir field for all generated entries (e.g. 'outputs_sabesp')")
     group = p.add_mutually_exclusive_group(required=True)
     group.add_argument("--output", metavar="FILE",
                        help="Write new queue JSON to this file")
@@ -219,11 +236,13 @@ def main():
     # Build entries
     new_entries = []
     if 0 in args.tiers:
-        t0 = build_tier0(args.prefix, args.data_path, arch)
+        t0 = build_tier0(args.prefix, args.data_path, arch,
+                         gpu_tier=args.gpu_tier, output_dir=args.output_dir)
         new_entries.extend(t0)
         print(f"Tier 0: {len(t0)} entries")
     if 1 in args.tiers:
-        t1 = build_tier1(args.prefix, args.data_path, arch)
+        t1 = build_tier1(args.prefix, args.data_path, arch,
+                         gpu_tier=args.gpu_tier, output_dir=args.output_dir)
         new_entries.extend(t1)
         print(f"Tier 1: {len(t1)} entries")
 

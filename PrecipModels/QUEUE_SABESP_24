@@ -5,14 +5,20 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "gru_hidden": 32,
     "hidden_size": 64,
-    "latent_size": 16
+    "latent_size": 16,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_match",
     "model": "ar_flow_match",
     "data_path": "../dados_sabesp/data_precip.dat",
     "gru_hidden": 32,
-    "hidden_size": 64
+    "hidden_size": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_latent_fm",
@@ -20,35 +26,50 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "gru_hidden": 32,
     "hidden_size": 64,
-    "latent_size": 16
+    "latent_size": 16,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_real_nvp",
     "model": "ar_real_nvp",
     "data_path": "../dados_sabesp/data_precip.dat",
     "gru_hidden": 32,
-    "hidden_size": 64
+    "hidden_size": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_glow",
     "model": "ar_glow",
     "data_path": "../dados_sabesp/data_precip.dat",
     "gru_hidden": 32,
-    "hidden_size": 64
+    "hidden_size": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_mean_flow",
     "model": "ar_mean_flow",
     "data_path": "../dados_sabesp/data_precip.dat",
     "rnn_hidden": 32,
-    "hidden_size": 64
+    "hidden_size": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_map",
     "model": "ar_flow_map",
     "data_path": "../dados_sabesp/data_precip.dat",
     "rnn_hidden": 32,
-    "hidden_size": 64
+    "hidden_size": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_mean_flow_h64_l2",
@@ -56,7 +77,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 2,
-    "rnn_hidden": 32
+    "rnn_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_mean_flow_h64_l4",
@@ -64,7 +88,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 4,
-    "rnn_hidden": 32
+    "rnn_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_mean_flow_h64_l6",
@@ -72,7 +99,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 6,
-    "rnn_hidden": 32
+    "rnn_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_mean_flow_h128_l2",
@@ -80,7 +110,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 2,
-    "rnn_hidden": 64
+    "rnn_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_mean_flow_h128_l4",
@@ -88,7 +121,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 4,
-    "rnn_hidden": 64
+    "rnn_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_mean_flow_h128_l6",
@@ -96,7 +132,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 6,
-    "rnn_hidden": 64
+    "rnn_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_map_h64_l2",
@@ -104,7 +143,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 2,
-    "rnn_hidden": 32
+    "rnn_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_map_h64_l4",
@@ -112,7 +154,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 4,
-    "rnn_hidden": 32
+    "rnn_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_map_h64_l6",
@@ -120,7 +165,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 6,
-    "rnn_hidden": 32
+    "rnn_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_map_h128_l2",
@@ -128,7 +176,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 2,
-    "rnn_hidden": 64
+    "rnn_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_map_h128_l4",
@@ -136,7 +187,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 4,
-    "rnn_hidden": 64
+    "rnn_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_map_h128_l6",
@@ -144,7 +198,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 6,
-    "rnn_hidden": 64
+    "rnn_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_match_h64_l2",
@@ -152,7 +209,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 2,
-    "gru_hidden": 32
+    "gru_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_match_h64_l4",
@@ -160,7 +220,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 4,
-    "gru_hidden": 32
+    "gru_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_match_h64_l6",
@@ -168,7 +231,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 64,
     "n_layers": 6,
-    "gru_hidden": 32
+    "gru_hidden": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_match_h128_l2",
@@ -176,7 +242,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 2,
-    "gru_hidden": 64
+    "gru_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_match_h128_l4",
@@ -184,7 +253,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 4,
-    "gru_hidden": 64
+    "gru_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_flow_match_h128_l6",
@@ -192,7 +264,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "hidden_size": 128,
     "n_layers": 6,
-    "gru_hidden": 64
+    "gru_hidden": 64,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_vae_h64_lat16",
@@ -200,7 +275,10 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "gru_hidden": 32,
     "hidden_size": 64,
-    "latent_size": 16
+    "latent_size": 16,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   },
   {
     "variant_name": "sabesp_24_ar_vae_h128_lat32",
@@ -208,6 +286,9 @@
     "data_path": "../dados_sabesp/data_precip.dat",
     "gru_hidden": 64,
     "hidden_size": 128,
-    "latent_size": 32
+    "latent_size": 32,
+    "job_type": "train",
+    "gpu_tier": 1,
+    "output_dir": "outputs_sabesp"
   }
 ]
