@@ -80,11 +80,24 @@ Outputs go to `outputs/<name>/`: `model.pt` (or `copula.pkl`), `config.json`, `m
 
 Full registry: `PrecipModels/models/__init__.py`
 
+## Running Tests
+
+```bash
+conda run -n deeptutorial python -m pytest tests/ -v
+```
+
+- `deeptutorial` is the conda env with PyTorch + flask + requests
+- Tests cover: train --skip_eval, evaluate.py, queue_server, worker, make_queue
+
 ## Architecture
 
 ```
 PrecipModels/
 ├── train.py            # unified training entry point
+├── evaluate.py         # standalone evaluator (used by distributed workers)
+├── queue_server.py     # distributed job coordinator (run on Oracle VM)
+├── worker.py           # distributed training worker (run on each machine)
+├── worker_config.json.example  # worker configuration template
 ├── compare.py          # train all models + comparative analysis
 ├── validate_holdout.py # holdout validation
 ├── plot_model.py       # visualize model outputs
@@ -132,3 +145,5 @@ dados_barragens_btg/    # BTG dam data
 - **`--data_path` string-matched against `DEFAULT_DATA_PATH`:** only the exact string `"../dados/inmet_relevant_data.csv"` (or `"../dados_barragens_btg/inmet_relevant_data.csv"`) triggers the BTG/INMET loader; everything else routes to SABESP. Absolute paths work correctly since ceb793c. Relative paths still require running from `PrecipModels/`.
 - **New conditional `nn.Parameter` in AR models requires 3 coordinated changes:** (1) guard creation with `if hyperparam > 0` in model `__init__`, (2) save hyperparam to config dict in `train.py` (~line 824), (3) add to float-param loop in `compare_ar.py`'s `load_ar_model()`. Missing any one causes checkpoint load failure on rollout.
 - **`compare_ar.py` rollout loader:** reads int arch params automatically but float params (`occ_weight`, `jvp_eps`, `mf_ratio`) must be explicitly listed in the float-param loop (~line 240).
+- **Distributed training:** `queue_server.py` runs on Oracle VM; `worker.py` polls it. Queue state persisted in `TRAINING_QUEUE.json`/`QUEUE_*.json` (`_status` field). Use `--skip_eval` on workers — eval jobs auto-inserted at gpu_tier=0. See `docs/superpowers/specs/2026-03-18-distributed-training-design.md`.
+- **evaluate.py float params:** Same rule as compare_ar.py — `occ_weight`, `jvp_eps`, `mf_ratio` must be cast as `float()` when loading from config.json.
