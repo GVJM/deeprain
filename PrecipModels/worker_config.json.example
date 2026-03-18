@@ -1,0 +1,10 @@
+{
+  "_comment_windows": "Windows: set output_base to the Dropbox folder root and leave dropbox_remote empty — Dropbox client syncs automatically, but worker.py still calls rclone copy explicitly to ensure files are uploaded before posting /complete.",
+  "_comment_oracle": "Oracle VM: set output_base to a local path and set dropbox_remote to 'dropbox:PrecipModels' so rclone copy uploads after each job.",
+  "server": "http://ORACLE_VM_IP:5000",
+  "machine": "home_pc",
+  "gpu_tier": 1,
+  "poll_interval": 30,
+  "output_base": "C:/Users/yourname/Dropbox/PrecipModels",
+  "dropbox_remote": ""
+}
