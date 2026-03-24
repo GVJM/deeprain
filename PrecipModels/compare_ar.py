@@ -22,9 +22,9 @@ Saídas em outputs/comparison_ar/:
     composite_bar.png, radar_by_family.png, pareto_*.png,
     heatmap_models_x_metrics.png, family_grouped_bars.png,
     training_loss_overlay.png, hyperparameter_sensitivity/*.png,
-    station_wasserstein_heatmap.png      ← models × stations heatmap, colorbar clipped at 95th pct (Tier 1)
+    station_wasserstein_heatmap.png      ← models x stations heatmap, colorbar clipped at 95th pct (Tier 1)
     station_rank_wasserstein_heatmap.png ← rank-based heatmap (1=best) — no outlier scale bias (Tier 1)
-    station_wetfreq_heatmap.png          ← models × stations heatmap (Tier 1)
+    station_wetfreq_heatmap.png          ← models x stations heatmap (Tier 1)
     station_score_distribution.png       ← per-station box plots (Tier 1)
     station_wins_per_model.png           ← best-model-per-station win count (Tier 1)
     stations/st_*.png                    ← per-station model comparison charts (Tier 1)
@@ -37,7 +37,7 @@ Saídas em outputs/comparison_ar/:
     monthly_variance.png, spread_envelopes.png, transition_probabilities.png, return_period.png,
     rx5day_distribution.png                  ← CDF Rx5day cenários vs observado (Tier 2)
     rx5day_distribution_detail.png           ← detalhe por modelo individual (Tier 2)
-    rxnday_multi_cdf.png                     ← grid 2×2 CDFs Rx3/5/10/30day (Tier 2)
+    rxnday_multi_cdf.png                     ← grid 2x2 CDFs Rx3/5/10/30day (Tier 2)
     seasonal_accumulation.png                ← totais mensais estação chuvosa vs seca (Tier 2)
     exceedance_frequency.png                 ← P(Rxnday > x) multi-janela, escala log (Tier 2)
     combined_scores_ar.json                  ← combined Tier1+Tier2 scores
@@ -447,8 +447,9 @@ def _rollout_worker(args_tuple) -> tuple[str, dict | None]:
             return variant, None
         t2 = compute_tier2_metrics(sc_mm, data_raw, obs_months)
         return variant, t2
-    except Exception as e:
-        print(f"  [worker] {variant}: failed — {e}", flush=True)
+    except Exception:
+        import traceback
+        print(f"  [worker] {variant}: failed\n{traceback.format_exc()}", flush=True)
         return variant, None
 
 
