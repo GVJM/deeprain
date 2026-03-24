@@ -71,11 +71,14 @@ def test_rollout_worker_returns_none_when_rollout_raises():
 
 
 def test_n_workers_in_compare_ar_parser():
-    """compare_ar.py must accept --n_workers with default 1."""
+    """compare_ar.py --n_workers must be registered with default=1."""
     import subprocess, sys
     result = subprocess.run(
         [sys.executable, "compare_ar.py", "--help"],
         capture_output=True, text=True,
     )
-    assert "--n_workers" in result.stdout
-    assert "default: 1" in result.stdout or "default=1" in result.stdout or "1 = sequential" in result.stdout
+    assert result.returncode == 0, f"--help failed: {result.stderr}"
+    assert "--n_workers" in result.stdout, "--n_workers not found in --help"
+    # argparse may line-wrap the help text, so check the two parts independently
+    assert "default: 1" in result.stdout, "help text missing 'default: 1' for --n_workers"
+    assert "sequential" in result.stdout, "help text missing 'sequential' for --n_workers"
