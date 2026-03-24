@@ -40,7 +40,7 @@ A module-level function (required for pickling by `multiprocessing`). Single-arg
 
 **Signature:**
 ```python
-def _rollout_worker(args_tuple) -> tuple[str, np.ndarray | None, dict | None]:
+def _rollout_worker(args_tuple) -> tuple[str, dict | None]:
 ```
 
 **Unpacks:**
@@ -51,17 +51,23 @@ def _rollout_worker(args_tuple) -> tuple[str, np.ndarray | None, dict | None]:
 
 **Steps:**
 1. Reconstruct `device = torch.device(device_str)`
-2. Call `run_rollout(variant, ...)` — returns `sc_mm` or `None`
+2. Call `run_rollout(variant, ...)` — returns `sc_mm` or `None`; the function already saves `sc_mm` to `outputs/<variant>/scenarios/scenarios.npy`
 3. If `sc_mm` is not `None`: call `compute_tier2_metrics(sc_mm, data_raw, obs_months)`
-4. Return `(variant, sc_mm, tier2_dict)` or `(variant, None, None)` on any failure
+4. Return `(variant, tier2_dict)` or `(variant, None)` on any failure
 
-Exceptions are caught and logged; worker always returns a valid 3-tuple.
+The worker does **not** return `sc_mm` across the process boundary. Since `run_rollout` already caches to disk, the main process loads `sc_mm` from disk after collecting the tier2 metrics dict. This avoids pickling large `(n_scenarios, n_days, S)` arrays through the inter-process channel.
+
+Exceptions are caught and logged; worker always returns a valid 2-tuple.
+
+**Important constraint:** `_rollout_worker` must not call any function that reads the module-level `args_global`. On Windows `spawn`, each worker process imports the module fresh and `args_global` remains `None` in the worker. All required data (`output_dir`, `data_norm`, etc.) must be passed explicitly in the args tuple.
 
 ### 2. New `--n_workers` CLI argument
 
 ```python
 parser.add_argument("--n_workers", type=int, default=1,
-                    help="Number of parallel rollout workers (default: 1 = sequential)")
+                    help="Number of parallel rollout workers (default: 1 = sequential). "
+                         "On a single GPU, --n_workers 2 is recommended; higher values "
+                         "share VRAM and may OOM. On CPU-only, can match physical core count.")
 ```
 
 ### 3. Changes to `main()` rollout loop
@@ -90,15 +96,24 @@ else:
     with ProcessPoolExecutor(max_workers=args.n_workers) as pool:
         futures = {pool.submit(_rollout_worker, a): a[0] for a in worker_args}
         for fut in as_completed(futures):
-            variant, sc_mm, t2 = fut.result()
-            if sc_mm is None:
+            variant, t2 = fut.result()
+            if t2 is None:
                 continue
+            # Load sc_mm from the cache written by the worker
+            cache_path = Path(args.output_dir) / variant / "scenarios" / "scenarios.npy"
+            sc_mm = np.load(str(cache_path))[:args.n_scenarios, :args.n_days, :]
             scenarios_by_model[variant] = sc_mm
             tier2_metrics[variant] = t2
             print(f"  [done] {variant}: ACF={t2['multi_lag_acf_rmse']:.4f} ...")
+
+    # Re-sort to original ckpt_variants order for deterministic plot output
+    scenarios_by_model = {v: scenarios_by_model[v] for v in ckpt_variants
+                          if v in scenarios_by_model}
+    tier2_metrics = {v: tier2_metrics[v] for v in ckpt_variants
+                     if v in tier2_metrics}
 ```
 
-`as_completed` lets results be collected and printed as each model finishes, rather than waiting for all.
+`as_completed` lets results be printed as each model finishes. After all futures complete, both dicts are re-sorted to match `ckpt_variants` order so that downstream plot legend ordering is deterministic and consistent with the sequential path.
 
 ### 4. Import additions
 
@@ -112,11 +127,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 | Scenario | Behavior |
 |---|---|
-| Worker crashes (OOM, load error, rollout fail) | Returns `(variant, None, None)`; main skips that variant (same as current) |
+| Worker crashes (OOM, load error, rollout fail) | Returns `(variant, None)`; main skips that variant (same as current) |
 | GPU OOM with N workers | Worker returns None; user reduces `--n_workers` |
 | Cache hit | `run_rollout` returns cached array immediately — worker still completes quickly |
 | `n_workers=1` | Exact current behavior, no `ProcessPoolExecutor` created |
 | Windows (default `spawn` start method) | Compatible with CUDA — no `set_start_method` call needed |
+| `as_completed` non-deterministic ordering | Re-sort after collection restores `ckpt_variants` order |
+| `args_global` is `None` in workers | Workers never call functions that read `args_global`; all inputs passed explicitly |
 
 ---
 
