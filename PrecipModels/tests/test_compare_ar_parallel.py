@@ -68,3 +68,14 @@ def test_rollout_worker_returns_none_when_rollout_raises():
 
     assert variant == "ar_vae_test"
     assert t2 is None
+
+
+def test_n_workers_in_compare_ar_parser():
+    """compare_ar.py must accept --n_workers with default 1."""
+    import subprocess, sys
+    result = subprocess.run(
+        [sys.executable, "compare_ar.py", "--help"],
+        capture_output=True, text=True,
+    )
+    assert "--n_workers" in result.stdout
+    assert "default: 1" in result.stdout or "default=1" in result.stdout or "1 = sequential" in result.stdout

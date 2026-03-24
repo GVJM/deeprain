@@ -2344,6 +2344,10 @@ def main():
                         help="Tier 2 only (skip Tier 1 charts)")
     parser.add_argument("--force_rollouts", action="store_true",
                         help="Re-run rollouts even if cached")
+    parser.add_argument("--n_workers", type=int, default=1,
+                        help="Number of parallel rollout workers (default: 1 = sequential). "
+                             "On a single GPU, --n_workers 2 is recommended; higher values "
+                             "share VRAM and may OOM. On CPU-only, can match physical core count.")
     parser.add_argument("--skip_station_analysis", action="store_true",
                         help="Skip per-station analysis (Tier 1)")
     parser.add_argument("--skip_station_detail", action="store_true",
