@@ -2360,6 +2360,10 @@ def main():
                              "dirs (families/) always show all variants.")
 
     args = parser.parse_args()
+
+    if args.n_workers < 1:
+        parser.error("--n_workers must be >= 1")
+
     args_global = args
 
     out_dir = os.path.join(args.output_dir, "comparison_ar")
@@ -2525,14 +2529,23 @@ def main():
         with ProcessPoolExecutor(max_workers=args.n_workers) as pool:
             futures = {pool.submit(_rollout_worker, a): a[0] for a in worker_args}
             for fut in as_completed(futures):
-                variant, t2 = fut.result()
+                try:
+                    variant, t2 = fut.result()
+                except Exception as exc:
+                    variant = futures[fut]
+                    print(f"  [done] {variant}: worker process died — {exc}", flush=True)
+                    continue
                 if t2 is None:
                     print(f"  [done] {variant}: failed or skipped")
                     continue
-                # Load sc_mm from cache written by the worker
+                # Load sc_mm from cache (run_rollout saves it; cache-hit path reuses existing file)
                 cache_path = (Path(args.output_dir) / variant
                               / "scenarios" / "scenarios.npy")
-                sc_mm = np.load(str(cache_path))[:args.n_scenarios, :args.n_days, :]
+                try:
+                    sc_mm = np.load(str(cache_path))[:args.n_scenarios, :args.n_days, :]
+                except Exception as exc:
+                    print(f"  [done] {variant}: cache load failed — {exc}", flush=True)
+                    continue
                 scenarios_by_model[variant] = sc_mm
                 tier2_metrics[variant] = t2
                 print(f"  [done] {variant}: ACF={t2['multi_lag_acf_rmse']:.4f} | "
