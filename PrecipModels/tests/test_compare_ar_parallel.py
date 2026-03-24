@@ -82,3 +82,25 @@ def test_n_workers_in_compare_ar_parser():
     # argparse may line-wrap the help text, so check the two parts independently
     assert "default: 1" in result.stdout, "help text missing 'default: 1' for --n_workers"
     assert "sequential" in result.stdout, "help text missing 'sequential' for --n_workers"
+
+
+def test_rollout_worker_returns_none_when_metrics_raises():
+    """Worker must return (variant, None) if compute_tier2_metrics raises."""
+    n_scenarios, n_days, n_stations = 5, 10, 3
+    fake_sc_mm = np.zeros((n_scenarios, n_days, n_stations), dtype=np.float32)
+
+    args_tuple = (
+        "ar_vae_test", "./outputs",
+        np.zeros((30, n_stations), dtype=np.float32),
+        np.ones((1, n_stations), dtype=np.float32),
+        np.zeros((30, n_stations), dtype=np.float32),
+        np.arange(30) % 12,
+        n_days, n_scenarios, "cpu", False,
+    )
+
+    with patch("compare_ar.run_rollout", return_value=fake_sc_mm), \
+         patch("compare_ar.compute_tier2_metrics", side_effect=RuntimeError("metric fail")):
+        variant, t2 = _rollout_worker(args_tuple)
+
+    assert variant == "ar_vae_test"
+    assert t2 is None

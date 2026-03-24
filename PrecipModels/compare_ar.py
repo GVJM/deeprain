@@ -2346,8 +2346,8 @@ def main():
                         help="Re-run rollouts even if cached")
     parser.add_argument("--n_workers", type=int, default=1,
                         help="Number of parallel rollout workers (default: 1 = sequential). "
-                             "On a single GPU, --n_workers 2 is recommended; higher values "
-                             "share VRAM and may OOM. On CPU-only, can match physical core count.")
+                             "On a single GPU, workers share VRAM — start with --n_workers 2 "
+                             "and reduce if OOM. On CPU-only, can match physical core count.")
     parser.add_argument("--skip_station_analysis", action="store_true",
                         help="Skip per-station analysis (Tier 1)")
     parser.add_argument("--skip_station_detail", action="store_true",
@@ -2538,6 +2538,8 @@ def main():
                 if t2 is None:
                     print(f"  [done] {variant}: failed or skipped")
                     continue
+                # Save metrics — do this before np.load so t2 is preserved even on cache failure
+                tier2_metrics[variant] = t2
                 # Load sc_mm from cache (run_rollout saves it; cache-hit path reuses existing file)
                 cache_path = (Path(args.output_dir) / variant
                               / "scenarios" / "scenarios.npy")
@@ -2547,7 +2549,6 @@ def main():
                     print(f"  [done] {variant}: cache load failed — {exc}", flush=True)
                     continue
                 scenarios_by_model[variant] = sc_mm
-                tier2_metrics[variant] = t2
                 print(f"  [done] {variant}: ACF={t2['multi_lag_acf_rmse']:.4f} | "
                       f"Trans Err={t2['transition_prob_error']:.4f} | "
                       f"CV={t2['inter_scenario_cv']:.4f}")
