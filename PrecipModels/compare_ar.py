@@ -2492,27 +2492,58 @@ def main():
     scenarios_by_model = {}
     tier2_metrics = {}
 
-    for variant in ckpt_variants:
-        print(f"\n[compare_ar] Processing: {variant}")
-        sc_mm = run_rollout(
-            variant=variant,
-            output_dir=args.output_dir,
-            data_norm=data_norm,
-            std=std,
-            n_days=args.n_days,
-            n_scenarios=args.n_scenarios,
-            device=device,
-            force=args.force_rollouts,
-        )
-        if sc_mm is None:
-            continue
-        scenarios_by_model[variant] = sc_mm
+    if args.n_workers == 1:
+        for variant in ckpt_variants:
+            print(f"\n[compare_ar] Processing: {variant}")
+            sc_mm = run_rollout(
+                variant=variant,
+                output_dir=args.output_dir,
+                data_norm=data_norm,
+                std=std,
+                n_days=args.n_days,
+                n_scenarios=args.n_scenarios,
+                device=device,
+                force=args.force_rollouts,
+            )
+            if sc_mm is None:
+                continue
+            scenarios_by_model[variant] = sc_mm
 
-        t2 = compute_tier2_metrics(sc_mm, data_raw, obs_months)
-        tier2_metrics[variant] = t2
-        print(f"  ACF RMSE={t2['multi_lag_acf_rmse']:.4f} | "
-              f"Trans Err={t2['transition_prob_error']:.4f} | "
-              f"CV={t2['inter_scenario_cv']:.4f}")
+            t2 = compute_tier2_metrics(sc_mm, data_raw, obs_months)
+            tier2_metrics[variant] = t2
+            print(f"  ACF RMSE={t2['multi_lag_acf_rmse']:.4f} | "
+                  f"Trans Err={t2['transition_prob_error']:.4f} | "
+                  f"CV={t2['inter_scenario_cv']:.4f}")
+    else:
+        print(f"[compare_ar] Parallel rollouts: {args.n_workers} workers, "
+              f"{len(ckpt_variants)} models")
+        worker_args = [
+            (v, args.output_dir, data_norm, std, data_raw, obs_months,
+             args.n_days, args.n_scenarios, str(device), args.force_rollouts)
+            for v in ckpt_variants
+        ]
+        with ProcessPoolExecutor(max_workers=args.n_workers) as pool:
+            futures = {pool.submit(_rollout_worker, a): a[0] for a in worker_args}
+            for fut in as_completed(futures):
+                variant, t2 = fut.result()
+                if t2 is None:
+                    print(f"  [done] {variant}: failed or skipped")
+                    continue
+                # Load sc_mm from cache written by the worker
+                cache_path = (Path(args.output_dir) / variant
+                              / "scenarios" / "scenarios.npy")
+                sc_mm = np.load(str(cache_path))[:args.n_scenarios, :args.n_days, :]
+                scenarios_by_model[variant] = sc_mm
+                tier2_metrics[variant] = t2
+                print(f"  [done] {variant}: ACF={t2['multi_lag_acf_rmse']:.4f} | "
+                      f"Trans Err={t2['transition_prob_error']:.4f} | "
+                      f"CV={t2['inter_scenario_cv']:.4f}")
+
+        # Re-sort to original ckpt_variants order for deterministic plot output
+        scenarios_by_model = {v: scenarios_by_model[v] for v in ckpt_variants
+                              if v in scenarios_by_model}
+        tier2_metrics = {v: tier2_metrics[v] for v in ckpt_variants
+                        if v in tier2_metrics}
 
     # Save Tier 2 metrics
     with open(os.path.join(out_dir, "tier2_temporal_metrics.json"), "w") as f:
