@@ -35,6 +35,19 @@ Saídas em outputs/comparison_ar/:
     monthly_mean_precip.png              ← family-aggregated (Tier 2)
     monthly_precip_detail.png            ← all individual models (Tier 2)
     monthly_variance.png, spread_envelopes.png, transition_probabilities.png, return_period.png,
+    rx5day_distribution.png                  ← CDF Rx5day cenários vs observado (Tier 2)
+    rx5day_distribution_detail.png           ← detalhe por modelo individual (Tier 2)
+    rxnday_multi_cdf.png                     ← grid 2×2 CDFs Rx3/5/10/30day (Tier 2)
+    seasonal_accumulation.png                ← totais mensais estação chuvosa vs seca (Tier 2)
+    exceedance_frequency.png                 ← P(Rxnday > x) multi-janela, escala log (Tier 2)
+    combined_scores_ar.json                  ← combined Tier1+Tier2 scores
+    families/
+        <family>/composite_bar.png           ← ranking de todas as variantes da família
+        <family>/acf_multilag.png            ← ACF de todas as variantes da família
+        <family>/rxnday_multi_cdf.png        ← CDFs Rxnday de todas as variantes
+        <family>/seasonal_accumulation.png
+        <family>/exceedance_frequency.png
+        <family>/...                         ← suite Tier 2 completa por família
     station_autocorr_scatter.png         ← per-station lag-1 ACF scatter (Tier 2)
     station_wetfreq_scatter.png          ← per-station wet freq scatter (Tier 2)
 """
@@ -56,6 +69,7 @@ import matplotlib.patches as mpatches
 import matplotlib.cm as cm
 
 import torch
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(__file__))
 from data_utils import load_data, SABESP_DATA_PATH
@@ -99,6 +113,22 @@ TIER2_METRICS = [
     ("monthly_mean_error",       "Monthly Mean Err",  True),
     ("monthly_var_error",        "Monthly Var Err",   True),
     ("inter_scenario_cv",        "Scenario CV",       False),
+    ("rx5day_wasserstein",       "Rx5day W1",         True),
+    ("rx3day_wasserstein",       "Rx3day W1",         True),
+    ("rx10day_wasserstein",      "Rx10day W1",        True),
+    ("rx30day_wasserstein",      "Rx30day W1",        True),
+    ("seasonal_wet_error",       "Wet Season Err",    True),
+    ("seasonal_dry_error",       "Dry Season Err",    True),
+]
+
+# Subset of Tier 2 metrics used in combined Tier1+Tier2 ranking score
+COMBINED_TIER2_METRICS = [
+    ("multi_lag_acf_rmse",    "ACF RMSE",        True),
+    ("transition_prob_error", "Trans. Prob Err",  True),
+    ("max_cdd_error",         "Max CDD Err",      True),
+    ("rx5day_wasserstein",    "Rx5day W1",        True),
+    ("seasonal_wet_error",    "Wet Season Err",   True),
+    ("seasonal_dry_error",    "Dry Season Err",   True),
 ]
 
 
@@ -106,12 +136,32 @@ TIER2_METRICS = [
 # Discovery
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _is_ar_dir(d: Path) -> bool:
+    """Return True if directory belongs to an AR model family.
+
+    Accepts both classic 'ar_*' names and prefixed names like 'dp24_ar_*'
+    by reading the 'model' field from config.json when available.
+    """
+    if d.name.startswith("ar_"):
+        return True
+    cfg_path = d / "config.json"
+    if cfg_path.exists():
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            model = cfg.get("model", "")
+            return any(model == fam or model.startswith(fam) for fam in AR_FAMILIES)
+        except Exception:
+            pass
+    return False
+
+
 def discover_ar_models(output_dir: str) -> list[str]:
-    """Scan outputs/ar_* dirs that have metrics.json."""
+    """Scan output dirs that have metrics.json and an AR model config."""
     base = Path(output_dir)
     variants = []
     for d in sorted(base.iterdir()):
-        if d.is_dir() and d.name.startswith("ar_") and (d / "metrics.json").exists():
+        if d.is_dir() and _is_ar_dir(d) and (d / "metrics.json").exists():
             variants.append(d.name)
     return variants
 
@@ -121,7 +171,7 @@ def discover_ar_models_with_checkpoints(output_dir: str) -> list[str]:
     base = Path(output_dir)
     variants = []
     for d in sorted(base.iterdir()):
-        if (d.is_dir() and d.name.startswith("ar_")
+        if (d.is_dir() and _is_ar_dir(d)
                 and (d / "metrics.json").exists()
                 and (d / "model.pt").exists()):
             variants.append(d.name)
@@ -200,6 +250,44 @@ def compute_composite(all_metrics: dict, metric_defs=QUALITY_METRICS) -> tuple[d
     return scores, normalized
 
 
+def compute_combined_score(
+    all_metrics: dict,
+    tier2_metrics: dict,
+) -> tuple[dict, dict]:
+    """
+    Combined Tier1+Tier2 composite score for ranking AR models.
+
+    Variants without Tier 2 data (no model.pt) get NaN for Tier 2 metrics and
+    are ranked below rollout models by select_top_n_per_family.
+    Delegates to compute_composite() — no scoring logic duplicated.
+    """
+    merged = {v: {**m, **tier2_metrics.get(v, {})} for v, m in all_metrics.items()}
+    metric_defs = list(QUALITY_METRICS) + list(COMBINED_TIER2_METRICS)
+    return compute_composite(merged, metric_defs=metric_defs)
+
+
+def select_top_n_per_family(
+    scores: dict,
+    families: dict[str, str],
+    n: int,
+) -> list[str]:
+    """
+    Return top N variants per family ranked by score (lower = better).
+    NaN scores are ranked last within their family so they are excluded first.
+    """
+    from collections import defaultdict
+    by_family: dict[str, list] = defaultdict(list)
+    for v, s in scores.items():
+        by_family[families.get(v, v)].append(
+            (s if not np.isnan(s) else float("inf"), v)
+        )
+    selected = []
+    for fam_variants in by_family.values():
+        fam_variants.sort(key=lambda x: x[0])
+        selected.extend(v for _, v in fam_variants[:n])
+    return selected
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Model loading (reuse compare.py pattern, extended for AR models)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -220,6 +308,21 @@ def load_ar_model(variant: str, output_dir: str, input_size: int, device: torch.
     model_dir = Path(output_dir) / variant
     cfg = _load_config(variant, output_dir)
     model_class = cfg.get("model", variant)
+
+    ckpt_path = model_dir / "model.pt"
+    if not ckpt_path.exists():
+        raise FileNotFoundError(f"model.pt not found: {ckpt_path}")
+
+    state = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+    if isinstance(state, dict) and "model_state_dict" in state:
+        state = state["model_state_dict"]
+
+    # Infer input_size from checkpoint — input_size is not saved in config.json
+    # weight_ih_l0 shape is [hidden*gates, input_size] for all RNN types (GRU/LSTM/RNN)
+    for key, tensor in state.items():
+        if key.endswith("weight_ih_l0"):
+            input_size = tensor.shape[1]
+            break
 
     model_kwargs = dict(input_size=input_size)
 
@@ -245,14 +348,6 @@ def load_ar_model(variant: str, output_dir: str, input_size: int, device: torch.
             model_kwargs[key] = float(val)
 
     model = get_model(model_class, **model_kwargs)
-
-    ckpt_path = model_dir / "model.pt"
-    if not ckpt_path.exists():
-        raise FileNotFoundError(f"model.pt not found: {ckpt_path}")
-
-    state = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-    if isinstance(state, dict) and "model_state_dict" in state:
-        state = state["model_state_dict"]
     model.load_state_dict(state)
     model.to(device)
     model.eval()
@@ -322,6 +417,41 @@ def run_rollout(
     return sc_mm
 
 
+def _rollout_worker(args_tuple) -> tuple[str, dict | None]:
+    """
+    Worker function for ProcessPoolExecutor parallel rollouts.
+
+    Handles the full per-model pipeline: load → rollout → metrics → save cache.
+    Returns (variant, tier2_dict) or (variant, None) on failure.
+
+    IMPORTANT: Must not call any function that reads the module-level `args_global`.
+    On Windows spawn, each worker process imports the module fresh and args_global
+    is None. All required data must be received via args_tuple.
+    """
+    (variant, output_dir, data_norm, std, data_raw, obs_months,
+     n_days, n_scenarios, device_str, force) = args_tuple
+
+    device = torch.device(device_str)
+    try:
+        sc_mm = run_rollout(
+            variant=variant,
+            output_dir=output_dir,
+            data_norm=data_norm,
+            std=std,
+            n_days=n_days,
+            n_scenarios=n_scenarios,
+            device=device,
+            force=force,
+        )
+        if sc_mm is None:
+            return variant, None
+        t2 = compute_tier2_metrics(sc_mm, data_raw, obs_months)
+        return variant, t2
+    except Exception as e:
+        print(f"  [worker] {variant}: failed — {e}", flush=True)
+        return variant, None
+
+
 def compute_tier2_metrics(
     scenarios_mm: np.ndarray,
     data_raw: np.ndarray,
@@ -341,6 +471,14 @@ def compute_tier2_metrics(
     result["monthly_mean_error"] = M.monthly_mean_error(scenarios_mm, data_raw, obs_months)
     result["monthly_var_error"] = M.monthly_variance_error(scenarios_mm, data_raw, obs_months)
     result["inter_scenario_cv"] = M.inter_scenario_cv(scenarios_mm)
+    result["rx5day_wasserstein"]  = M.rx5day_distribution_error(scenarios_mm, data_raw, window=5)
+    result["rx3day_wasserstein"]  = M.rx5day_distribution_error(scenarios_mm, data_raw, window=3)
+    result["rx10day_wasserstein"] = M.rx5day_distribution_error(scenarios_mm, data_raw, window=10)
+    result["rx30day_wasserstein"] = M.rx5day_distribution_error(scenarios_mm, data_raw, window=30)
+
+    seasonal = M.seasonal_accumulation_error(scenarios_mm, data_raw, obs_months)
+    result["seasonal_wet_error"] = seasonal["wet_season_error"]
+    result["seasonal_dry_error"] = seasonal["dry_season_error"]
 
     return result
 
@@ -350,8 +488,18 @@ def compute_tier2_metrics(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _family_colors(families: list[str]) -> dict[str, str]:
-    cmap = matplotlib.colormaps.get_cmap("tab10").resampled(len(AR_FAMILIES))
-    return {fam: matplotlib.colors.to_hex(cmap(i)) for i, fam in enumerate(AR_FAMILIES)}
+    """Map each family/variant name to a hex color.
+
+    Known AR_FAMILIES keep their stable tab10 index so colors are consistent
+    across all top-level plots. Unknown names (e.g. individual variant names
+    used in per-family detail dirs) get extra slots from tab10/tab20.
+    """
+    ordered = [f for f in AR_FAMILIES if f in families]
+    ordered += [f for f in families if f not in AR_FAMILIES]
+    n = max(len(ordered), 1)
+    cmap_name = "tab10" if n <= 10 else "tab20"
+    cmap = matplotlib.colormaps.get_cmap(cmap_name).resampled(n)
+    return {fam: matplotlib.colors.to_hex(cmap(i)) for i, fam in enumerate(ordered)}
 
 
 def plot_composite_bar(
@@ -738,7 +886,8 @@ def plot_autocorr_multilag(
 ):
     lags = np.arange(1, max_lag + 1)
     obs_acf = _mean_autocorr_nd(data_raw, max_lag)
-    fam_colors = _family_colors(AR_FAMILIES)
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
 
     def _get_fam(variant):
         if families is not None:
@@ -804,7 +953,8 @@ def plot_spell_length_comparison(
 ):
     obs_sp = _spell_dist(data_raw, max_len=max_len)
     lens = np.arange(1, max_len + 1)
-    fam_colors = _family_colors(AR_FAMILIES)
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
 
     def _get_fam(variant):
         if families is not None:
@@ -872,7 +1022,8 @@ def plot_monthly_precip(
                         else 0.0 for m in range(12)])
     month_labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     x = np.arange(12)
-    fam_colors = _family_colors(AR_FAMILIES)
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
 
     def _get_fam(variant):
         if families is not None:
@@ -1070,9 +1221,11 @@ def plot_return_period(
     scenarios_by_model: dict,
     data_raw: np.ndarray,
     out_dir: str,
+    families: dict[str, str] | None = None,
 ):
     """Annual max daily precipitation empirical CDF (return period proxy)."""
-    fam_colors = _family_colors(AR_FAMILIES)
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
@@ -1087,11 +1240,14 @@ def plot_return_period(
         sc_ann_max = sc_mm.max(axis=1).mean(axis=1)  # (n_sc,)
         sc_sorted = np.sort(sc_ann_max)
         p_sc = np.arange(1, len(sc_sorted) + 1) / (len(sc_sorted) + 1)
-        cfg_path = Path(args_global.output_dir) / variant / "config.json"
-        fam = variant
-        if cfg_path.exists():
-            with open(cfg_path) as f:
-                fam = json.load(f).get("model", variant)
+        if families is not None:
+            fam = families.get(variant, variant)
+        else:
+            cfg_path = Path(args_global.output_dir) / variant / "config.json"
+            fam = variant
+            if cfg_path.exists():
+                with open(cfg_path) as f:
+                    fam = json.load(f).get("model", variant)
         color = fam_colors.get(fam, "gray")
         ax.plot(sc_sorted, p_sc, lw=1.5, alpha=0.75, color=color, label=variant)
 
@@ -1104,6 +1260,362 @@ def plot_return_period(
     plt.savefig(out_path, dpi=130, bbox_inches="tight")
     plt.close()
     print(f"  [plot] {out_path}")
+
+
+def plot_rx5day_distribution(
+    scenarios_by_model: dict,
+    data_raw: np.ndarray,
+    out_dir: str,
+    families: dict[str, str] | None = None,
+    window: int = 5,
+):
+    """
+    CDF empírica do acumulado máximo em `window` dias consecutivos (Rxnday).
+
+    Comparar a distribuição do Rx5day observado vs. cenários mostra se o modelo
+    reproduz a frequência e magnitude de eventos extremos multi-dia (cheias).
+    """
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
+
+    def _rx_pooled(data: np.ndarray) -> np.ndarray:
+        """Todas as somas rolantes de `window` dias para todas as estações."""
+        parts = []
+        for s in range(data.shape[-1]):
+            parts.append(np.convolve(data[:, s], np.ones(window), mode="valid"))
+        return np.concatenate(parts)
+
+    # Observed distribution (pool over stations)
+    obs_rx = _rx_pooled(data_raw)
+
+    # ── family-aggregated plot ──
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    obs_sorted = np.sort(obs_rx)
+    p_obs = np.arange(1, len(obs_sorted) + 1) / (len(obs_sorted) + 1)
+    ax.plot(obs_sorted, p_obs, "k-", lw=2.5, label="Observed", zorder=10)
+
+    seen_fams = set()
+    for variant, sc_mm in scenarios_by_model.items():
+        # Pool all rolling sums from all scenarios and all stations
+        sc_rx_parts = []
+        for i in range(sc_mm.shape[0]):
+            sc_rx_parts.append(_rx_pooled(sc_mm[i]))
+        sc_rx = np.concatenate(sc_rx_parts)
+        sc_sorted = np.sort(sc_rx)
+        p_sc = np.arange(1, len(sc_sorted) + 1) / (len(sc_sorted) + 1)
+
+        fam = (families or {}).get(variant, variant)
+        color = fam_colors.get(fam, "gray")
+        label = fam if fam not in seen_fams else None
+        seen_fams.add(fam)
+        ax.plot(sc_sorted, p_sc, lw=1.2, alpha=0.7, color=color, label=label)
+
+    ax.set_xlabel(f"Rx{window}day — Acumulado {window} dias (mm)")
+    ax.set_ylabel("CDF Empírica")
+    ax.set_title(f"Distribuição do Rx{window}day — Cenários vs. Observado")
+    handles = [mpatches.Patch(color="k", label="Observed")]
+    handles += [mpatches.Patch(color=fam_colors.get(f, "gray"), label=f) for f in AR_FAMILIES]
+    ax.legend(handles=handles, fontsize=8, ncol=2)
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, f"rx{window}day_distribution.png")
+    plt.savefig(out_path, dpi=130, bbox_inches="tight")
+    plt.close()
+    print(f"  [plot] {out_path}")
+
+    # ── detail plot (all individual models) ──
+    if len(scenarios_by_model) <= 20:
+        fig, ax = plt.subplots(figsize=(11, 5))
+        ax.plot(obs_sorted, p_obs, "k-", lw=2.5, label="Observed", zorder=10)
+
+        for variant, sc_mm in scenarios_by_model.items():
+            sc_rx_parts = []
+            for i in range(sc_mm.shape[0]):
+                sc_rx_parts.append(_rx_pooled(sc_mm[i]))
+            sc_rx = np.concatenate(sc_rx_parts)
+            sc_sorted = np.sort(sc_rx)
+            p_sc = np.arange(1, len(sc_sorted) + 1) / (len(sc_sorted) + 1)
+            fam = (families or {}).get(variant, variant)
+            color = fam_colors.get(fam, "gray")
+            ax.plot(sc_sorted, p_sc, lw=1, alpha=0.8, color=color, label=variant)
+
+        ax.set_xlabel(f"Rx{window}day — Acumulado {window} dias (mm)")
+        ax.set_ylabel("CDF Empírica")
+        ax.set_title(f"Rx{window}day — Todos os Modelos (detalhe)")
+        ax.legend(fontsize=6, ncol=3)
+        ax.grid(alpha=0.3)
+        plt.tight_layout()
+        out_path2 = os.path.join(out_dir, f"rx{window}day_distribution_detail.png")
+        plt.savefig(out_path2, dpi=130, bbox_inches="tight")
+        plt.close()
+        print(f"  [plot] {out_path2}")
+
+
+def plot_rxnday_multi(
+    scenarios_by_model: dict,
+    data_raw: np.ndarray,
+    out_dir: str,
+    families: dict[str, str] | None = None,
+    windows: tuple = (3, 5, 10, 30),
+):
+    """
+    Grid 2×2 de CDFs empíricas para acumulados Rx3, Rx5, Rx10, Rx30.
+
+    Permite comparar como cada modelo escala com a janela de acumulação —
+    um bom modelo deve apresentar erro consistente em todas as janelas.
+    """
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    axes = axes.flatten()
+
+    for ax, window in zip(axes, windows):
+        # Observed distribution
+        obs_parts = []
+        for s in range(data_raw.shape[1]):
+            obs_parts.append(np.convolve(data_raw[:, s], np.ones(window), mode="valid"))
+        obs_rx = np.concatenate(obs_parts)
+        obs_sorted = np.sort(obs_rx)
+        p_obs = np.arange(1, len(obs_sorted) + 1) / (len(obs_sorted) + 1)
+        ax.plot(obs_sorted, p_obs, "k-", lw=2, label="Observed", zorder=10)
+
+        seen_fams = set()
+        for variant, sc_mm in scenarios_by_model.items():
+            sc_rx_parts = []
+            for i in range(sc_mm.shape[0]):
+                for s in range(sc_mm.shape[2]):
+                    sc_rx_parts.append(np.convolve(sc_mm[i, :, s], np.ones(window), mode="valid"))
+            sc_rx = np.concatenate(sc_rx_parts)
+            sc_sorted = np.sort(sc_rx)
+            p_sc = np.arange(1, len(sc_sorted) + 1) / (len(sc_sorted) + 1)
+            fam = (families or {}).get(variant, variant)
+            color = fam_colors.get(fam, "gray")
+            label = fam if fam not in seen_fams else None
+            seen_fams.add(fam)
+            ax.plot(sc_sorted, p_sc, lw=1.2, alpha=0.7, color=color, label=label)
+
+        ax.set_title(f"Rx{window}day (acumulado {window} dias)")
+        ax.set_xlabel("mm")
+        ax.set_ylabel("CDF")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=6, ncol=2)
+
+    fig.suptitle("Distribuição Rxnday — Cenários vs. Observado", fontsize=12)
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, "rxnday_multi_cdf.png")
+    plt.savefig(out_path, dpi=130, bbox_inches="tight")
+    plt.close()
+    print(f"  [plot] {out_path}")
+
+
+def plot_seasonal_accumulation(
+    scenarios_by_model: dict,
+    data_raw: np.ndarray,
+    obs_months: np.ndarray,
+    out_dir: str,
+    families: dict[str, str] | None = None,
+    wet_months: tuple = (10, 11, 0, 1, 2, 3),
+    start_month: int = 0,
+):
+    """
+    CDF dos totais mensais da estação chuvosa (Nov–Abr) e seca (Mai–Out).
+
+    Avalia se o modelo reproduz corretamente o volume sazonal acumulado —
+    crítico para gestão de reservatórios.
+    """
+    dry_months = tuple(m for m in range(12) if m not in wet_months)
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
+
+    def _monthly_totals_1d(data2d: np.ndarray, months_mask: np.ndarray, season: tuple) -> np.ndarray:
+        """Per-year-month totals pooled across all stations."""
+        parts = []
+        for m in season:
+            indices = np.where(months_mask == m)[0]
+            if len(indices) == 0:
+                continue
+            breaks = np.where(np.diff(indices) > 1)[0] + 1
+            for run in np.split(indices, breaks):
+                parts.extend(data2d[run].sum(axis=0).tolist())
+        return np.array(parts) if parts else np.array([])
+
+    obs_wet = _monthly_totals_1d(data_raw, obs_months, wet_months)
+    obs_dry = _monthly_totals_1d(data_raw, obs_months, dry_months)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    titles = ["Estação Chuvosa (Nov–Abr)", "Estação Seca (Mai–Out)"]
+    obs_data = [obs_wet, obs_dry]
+
+    for ax, title, obs_rx in zip(axes, titles, obs_data):
+        if len(obs_rx) == 0:
+            ax.set_title(title + " (sem dados)")
+            continue
+        obs_sorted = np.sort(obs_rx)
+        p_obs = np.arange(1, len(obs_sorted) + 1) / (len(obs_sorted) + 1)
+        ax.plot(obs_sorted, p_obs, "k-", lw=2.5, label="Observed", zorder=10)
+
+    n_sc_months = None
+    seen_fams = [set(), set()]
+    for variant, sc_mm in scenarios_by_model.items():
+        T = sc_mm.shape[1]
+        if n_sc_months is None:
+            MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            _ml, _mm, _md = [], start_month, 0
+            for _tt in range(T):
+                _ml.append(_mm)
+                _md += 1
+                if _md >= MONTH_DAYS[_mm % 12]:
+                    _mm = (_mm + 1) % 12
+                    _md = 0
+            n_sc_months = np.array(_ml)
+        fam = (families or {}).get(variant, variant)
+        color = fam_colors.get(fam, "gray")
+
+        for ax_idx, (ax, season) in enumerate(zip(axes, [wet_months, dry_months])):
+            sc_parts = []
+            for i in range(sc_mm.shape[0]):
+                sc_parts.append(_monthly_totals_1d(sc_mm[i], n_sc_months, season))
+            sc_rx = np.concatenate([p for p in sc_parts if len(p) > 0])
+            if len(sc_rx) == 0:
+                continue
+            sc_sorted = np.sort(sc_rx)
+            p_sc = np.arange(1, len(sc_sorted) + 1) / (len(sc_sorted) + 1)
+            label = fam if fam not in seen_fams[ax_idx] else None
+            seen_fams[ax_idx].add(fam)
+            ax.plot(sc_sorted, p_sc, lw=1.2, alpha=0.7, color=color, label=label)
+
+    for ax, title in zip(axes, titles):
+        ax.set_title(title)
+        ax.set_xlabel("Total mensal (mm)")
+        ax.set_ylabel("CDF")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+
+    fig.suptitle("Acumulado Sazonal — Cenários vs. Observado", fontsize=12)
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, "seasonal_accumulation.png")
+    plt.savefig(out_path, dpi=130, bbox_inches="tight")
+    plt.close()
+    print(f"  [plot] {out_path}")
+
+
+def plot_exceedance_frequency(
+    scenarios_by_model: dict,
+    data_raw: np.ndarray,
+    out_dir: str,
+    families: dict[str, str] | None = None,
+    windows: tuple = (3, 5, 10, 30),
+):
+    """
+    Curva de frequência de excedância P(Rxnday > x) para múltiplas janelas.
+
+    Leitura direta de risco: para um acumulado de X mm em N dias, qual a
+    probabilidade de ocorrência? Modelos que subestimam a cauda aparecem
+    claramente abaixo da curva observada no eixo log-y.
+    """
+    _fams = list(dict.fromkeys((families or {}).values())) or AR_FAMILIES
+    fam_colors = _family_colors(_fams)
+    linestyles = ["-", "--", "-.", ":"]
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+
+    # Determine x-axis range from observed data across all windows
+    all_obs_rx = []
+    for window in windows:
+        for s in range(data_raw.shape[1]):
+            all_obs_rx.append(np.convolve(data_raw[:, s], np.ones(window), mode="valid"))
+    x_max = np.percentile(np.concatenate(all_obs_rx), 99.5)
+    thresholds = np.linspace(0, x_max, 300)
+
+    # Observed curves (one per window, all black, different linestyle)
+    for window, ls in zip(windows, linestyles):
+        obs_parts = []
+        for s in range(data_raw.shape[1]):
+            obs_parts.append(np.convolve(data_raw[:, s], np.ones(window), mode="valid"))
+        obs_rx = np.concatenate(obs_parts)
+        exceedance = np.array([(obs_rx > t).mean() for t in thresholds])
+        exceedance = np.clip(exceedance, 1e-6, 1)
+        ax.plot(thresholds, exceedance, color="black", lw=2, ls=ls,
+                label=f"Obs Rx{window}day", zorder=10)
+
+    # Model curves — one line per (family × window)
+    seen = set()
+    for variant, sc_mm in scenarios_by_model.items():
+        fam = (families or {}).get(variant, variant)
+        color = fam_colors.get(fam, "gray")
+        for window, ls in zip(windows, linestyles):
+            sc_rx_parts = []
+            for i in range(sc_mm.shape[0]):
+                for s in range(sc_mm.shape[2]):
+                    sc_rx_parts.append(np.convolve(sc_mm[i, :, s], np.ones(window), mode="valid"))
+            sc_rx = np.concatenate(sc_rx_parts)
+            exceedance = np.array([(sc_rx > t).mean() for t in thresholds])
+            exceedance = np.clip(exceedance, 1e-6, 1)
+            key = (fam, window)
+            label = f"{fam} Rx{window}day" if key not in seen else None
+            seen.add(key)
+            ax.plot(thresholds, exceedance, color=color, lw=1, ls=ls, alpha=0.6, label=label)
+
+    ax.set_yscale("log")
+    ax.set_xlabel("Limiar de acumulado (mm)")
+    ax.set_ylabel("P(Rxnday > limiar)")
+    ax.set_title("Frequência de Excedância — Múltiplas Janelas de Acumulação")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=6, ncol=3, loc="upper right")
+    plt.tight_layout()
+    out_path = os.path.join(out_dir, "exceedance_frequency.png")
+    plt.savefig(out_path, dpi=130, bbox_inches="tight")
+    plt.close()
+    print(f"  [plot] {out_path}")
+
+
+def plot_family_detail_dirs(
+    scenarios_by_model: dict,
+    data_raw: np.ndarray,
+    obs_months: np.ndarray,
+    all_metrics: dict,
+    tier2_metrics: dict,
+    families: dict[str, str],
+    out_dir: str,
+):
+    """
+    Generate per-family detail subdirs: comparison_ar/families/<family>/.
+
+    Each subdir contains the full Tier 2 plot suite for ALL variants of that
+    family — unfiltered, regardless of --top_n_per_family. Enables drill-down
+    without polluting top-level charts.
+    """
+    from collections import defaultdict
+    by_family: dict[str, dict] = defaultdict(dict)
+    for v, sc in scenarios_by_model.items():
+        by_family[families.get(v, v)][v] = sc
+
+    for fam, fam_scenarios in sorted(by_family.items()):
+        if not fam_scenarios:
+            continue
+        fam_dir = os.path.join(out_dir, "families", fam)
+        os.makedirs(fam_dir, exist_ok=True)
+        print(f"\n  [family] {fam} ({len(fam_scenarios)} variants) → {fam_dir}")
+
+        # Composite bar ranked by combined score (family only)
+        fam_metrics = {v: all_metrics[v] for v in fam_scenarios if v in all_metrics}
+        if fam_metrics:
+            fam_t2 = {v: tier2_metrics.get(v, {}) for v in fam_scenarios}
+            fam_combined, _ = compute_combined_score(fam_metrics, fam_t2)
+            fam_families_map = {v: fam for v in fam_scenarios}
+            plot_composite_bar(fam_combined, fam_families_map, fam_dir)
+
+        # Full Tier 2 plot suite for this family
+        # Map each variant to itself so _family_colors generates distinct colors per variant
+        fam_fam_map = {v: v for v in fam_scenarios}
+        plot_autocorr_multilag(fam_scenarios, data_raw, fam_dir, families=fam_fam_map)
+        plot_spell_length_comparison(fam_scenarios, data_raw, fam_dir, families=fam_fam_map)
+        plot_monthly_precip(fam_scenarios, data_raw, obs_months, fam_dir, families=fam_fam_map)
+        plot_return_period(fam_scenarios, data_raw, fam_dir, families=fam_fam_map)
+        plot_rxnday_multi(fam_scenarios, data_raw, fam_dir, families=fam_fam_map)
+        plot_seasonal_accumulation(fam_scenarios, data_raw, obs_months, fam_dir, families=fam_fam_map)
+        plot_exceedance_frequency(fam_scenarios, data_raw, fam_dir, families=fam_fam_map)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1837,6 +2349,10 @@ def main():
                         help="Skip per-station individual charts (stations/ dir)")
     parser.add_argument("--data_path",    type=str,   default=SABESP_DATA_PATH)
     parser.add_argument("--output_dir",   type=str,   default="./outputs")
+    parser.add_argument("--top_n_per_family", type=int, default=None,
+                        help="Keep only top N variants per family in top-level plots, "
+                             "ranked by combined Tier1+Tier2 score. Per-family detail "
+                             "dirs (families/) always show all variants.")
 
     args = parser.parse_args()
     args_global = args
@@ -1885,19 +2401,34 @@ def main():
         write_family_summary(all_metrics, scores, families, out_dir)
         write_hyperparameter_sensitivity_report(all_metrics, scores, families, out_dir)
 
+        # Filter Tier 1 variant-level plots if --top_n_per_family set
+        # (uses Tier 1 composite score — Tier 2 not yet available here)
+        if args.top_n_per_family is not None:
+            t1_plot_variants = select_top_n_per_family(scores, families, args.top_n_per_family)
+            t1_plot_metrics = {v: all_metrics[v] for v in t1_plot_variants if v in all_metrics}
+            t1_plot_normalized = {v: normalized[v] for v in t1_plot_variants if v in normalized}
+            t1_plot_scores = {v: scores[v] for v in t1_plot_variants if v in scores}
+            print(f"[compare_ar] Tier 1 plots: {len(t1_plot_variants)} variants "
+                  f"(top {args.top_n_per_family} per family by Tier 1 score)")
+        else:
+            t1_plot_variants = list(all_metrics.keys())
+            t1_plot_metrics = all_metrics
+            t1_plot_normalized = normalized
+            t1_plot_scores = scores
+
         print("\n[compare_ar] Generating Tier 1 charts...")
-        plot_composite_bar(scores, families, out_dir)
-        plot_radar_by_family(all_metrics, families, out_dir)
-        plot_pareto(scores, all_metrics, families, out_dir,
+        plot_composite_bar(t1_plot_scores, families, out_dir)
+        plot_radar_by_family(t1_plot_metrics, families, out_dir)
+        plot_pareto(t1_plot_scores, t1_plot_metrics, families, out_dir,
                     x_key="sampling_time_ms", x_label="Sampling Time (ms)",
                     filename="pareto_quality_vs_time.png")
-        plot_pareto(scores, all_metrics, families, out_dir,
+        plot_pareto(t1_plot_scores, t1_plot_metrics, families, out_dir,
                     x_key="n_parameters", x_label="Parameter Count",
                     filename="pareto_quality_vs_params.png")
-        plot_heatmap(all_metrics, normalized, out_dir)
-        plot_family_grouped_bars(all_metrics, families, out_dir)
-        plot_hyperparameter_sensitivity(all_metrics, families, scores, out_dir)
-        plot_training_loss_overlay(tier1_variants, args.output_dir, out_dir)
+        plot_heatmap(t1_plot_metrics, t1_plot_normalized, out_dir)
+        plot_family_grouped_bars(t1_plot_metrics, families, out_dir)
+        plot_hyperparameter_sensitivity(t1_plot_metrics, families, t1_plot_scores, out_dir)
+        plot_training_loss_overlay(t1_plot_variants, args.output_dir, out_dir)
 
         # ── Per-Station Analysis (Tier 1) ──
         if not args.skip_station_analysis:
@@ -1986,21 +2517,50 @@ def main():
     if not scenarios_by_model:
         print("[compare_ar] No scenarios generated.")
     else:
-        print(f"\n[compare_ar] Generating Tier 2 charts ({len(scenarios_by_model)} models)...")
-        plot_autocorr_multilag(scenarios_by_model, data_raw, out_dir, families=families)
-        plot_spell_length_comparison(scenarios_by_model, data_raw, out_dir, families=families)
-        plot_monthly_precip(scenarios_by_model, data_raw, obs_months, out_dir, families=families)
-        plot_spread_envelopes(scenarios_by_model, data_raw, out_dir)
-        plot_transition_probs(scenarios_by_model, data_raw, out_dir)
-        plot_return_period(scenarios_by_model, data_raw, out_dir)
+        # ── Combined Tier1+Tier2 score ──
+        combined_scores, _ = compute_combined_score(all_metrics, tier2_metrics)
+        with open(os.path.join(out_dir, "combined_scores_ar.json"), "w") as f:
+            json.dump({"combined_scores": combined_scores}, f, indent=2)
+        print(f"\n  [report] Combined scores saved.")
+
+        # ── Filter top-level plots ──
+        if args.top_n_per_family is not None:
+            plot_variants = select_top_n_per_family(combined_scores, families, args.top_n_per_family)
+            plot_scenarios = {v: scenarios_by_model[v] for v in plot_variants
+                              if v in scenarios_by_model}
+            print(f"\n[compare_ar] --top_n_per_family={args.top_n_per_family}: "
+                  f"{len(plot_scenarios)} variants in top-level plots "
+                  f"(from {len(scenarios_by_model)} total with checkpoints)")
+        else:
+            plot_scenarios = scenarios_by_model
+
+        # ── Per-family detail dirs (all variants, unfiltered) ──
+        print("\n[compare_ar] Generating per-family detail dirs...")
+        plot_family_detail_dirs(
+            scenarios_by_model, data_raw, obs_months,
+            all_metrics, tier2_metrics, families, out_dir,
+        )
+
+        # ── Top-level Tier 2 charts (filtered) ──
+        print(f"\n[compare_ar] Generating Tier 2 charts ({len(plot_scenarios)} models)...")
+        plot_autocorr_multilag(plot_scenarios, data_raw, out_dir, families=families)
+        plot_spell_length_comparison(plot_scenarios, data_raw, out_dir, families=families)
+        plot_monthly_precip(plot_scenarios, data_raw, obs_months, out_dir, families=families)
+        plot_spread_envelopes(plot_scenarios, data_raw, out_dir)
+        plot_transition_probs(plot_scenarios, data_raw, out_dir)
+        plot_return_period(plot_scenarios, data_raw, out_dir, families=families)
+        plot_rx5day_distribution(plot_scenarios, data_raw, out_dir, families=families)
+        plot_rxnday_multi(plot_scenarios, data_raw, out_dir, families=families)
+        plot_seasonal_accumulation(plot_scenarios, data_raw, obs_months, out_dir, families=families)
+        plot_exceedance_frequency(plot_scenarios, data_raw, out_dir, families=families)
 
         if not args.skip_station_analysis:
             print("\n[compare_ar] === Tier 2 Per-Station Scatter Plots ===")
             plot_per_station_lag1_scatter(
-                scenarios_by_model, data_raw, station_names, families, out_dir,
+                plot_scenarios, data_raw, station_names, families, out_dir,
             )
             plot_per_station_wetfreq_scatter(
-                scenarios_by_model, data_raw, station_names, families, out_dir,
+                plot_scenarios, data_raw, station_names, families, out_dir,
             )
 
     print(f"\n[compare_ar] Done. Output: {out_dir}")
