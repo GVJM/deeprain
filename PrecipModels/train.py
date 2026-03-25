@@ -26,7 +26,7 @@ import argparse
 import json
 import pickle
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -174,62 +174,38 @@ def get_mf_ratio(epoch: int, mf_warmup: int, mf_ratio: float) -> float:
     return mf_ratio * ramp
 
 
-def temporal_holdout_split_with_cond(
-    data_raw: np.ndarray,
-    cond_arrays: dict,
-    holdout_ratio: float,
-) -> Tuple[np.ndarray, np.ndarray, dict, dict]:
+from data_utils import (
+    temporal_holdout_split,
+    temporal_holdout_split_with_cond,
+    temporal_train_val_test_split,
+    temporal_train_val_test_split_with_cond,
+    compute_norm_params,
+    normalize_with_params,
+)
+
+
+class EarlyStopper:
+    """Monitor val loss and signal when training should stop.
+
+    patience=0 disables early stopping (never stops).
+    Patience counts validation *checks*, not epochs — use val_freq to control
+    how often checks occur.
     """
-    Split temporal para dados com condicionamento.
-    Aplica o mesmo índice de corte a data_raw e a todos os arrays em cond_arrays.
+    def __init__(self, patience: int):
+        self.patience = patience
+        self.best_loss = float('inf')
+        self._strikes = 0
 
-    Returns:
-        train_raw, eval_raw, train_cond, eval_cond
-    """
-    if holdout_ratio <= 0:
-        return data_raw, data_raw, cond_arrays, cond_arrays
-
-    n_total = data_raw.shape[0]
-    n_eval = max(1, int(round(n_total * holdout_ratio)))
-    n_eval = min(n_eval, n_total - 1)
-    cut = n_total - n_eval
-
-    train_raw = data_raw[:cut]
-    eval_raw = data_raw[cut:]
-    train_cond = {k: v[:cut] for k, v in cond_arrays.items()}
-    eval_cond = {k: v[cut:] for k, v in cond_arrays.items()}
-    return train_raw, eval_raw, train_cond, eval_cond
-
-
-def temporal_holdout_split(data_raw: np.ndarray, holdout_ratio: float) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Split temporal (sem embaralhar):
-      - treino = parte inicial
-      - avaliação = parte final (holdout)
-    """
-    if holdout_ratio <= 0:
-        return data_raw, data_raw
-
-    n_total = data_raw.shape[0]
-    n_eval = max(1, int(round(n_total * holdout_ratio)))
-    n_eval = min(n_eval, n_total - 1)
-    return data_raw[:-n_eval], data_raw[-n_eval:]
-
-
-def compute_norm_params(train_raw: np.ndarray, normalization_mode: str) -> Tuple[np.ndarray, np.ndarray]:
-    std = np.std(train_raw, axis=0, keepdims=True)
-    std = np.clip(std, 1e-8, None)
-    if normalization_mode == "scale_only":
-        mu = np.zeros((1, train_raw.shape[1]), dtype=train_raw.dtype)
-    elif normalization_mode == "standardize":
-        mu = np.mean(train_raw, axis=0, keepdims=True)
-    else:
-        raise ValueError(f"normalization_mode inválido: '{normalization_mode}'")
-    return mu, std
-
-
-def normalize_with_params(data_raw: np.ndarray, mu: np.ndarray, std: np.ndarray) -> np.ndarray:
-    return (data_raw - mu) / std
+    def update(self, val_loss: float) -> bool:
+        """Returns True when training should stop."""
+        if self.patience <= 0:
+            return False
+        if val_loss < self.best_loss:
+            self.best_loss = val_loss
+            self._strikes = 0
+        else:
+            self._strikes += 1
+        return self._strikes >= self.patience
 
 
 def instantiate_model(
@@ -263,6 +239,8 @@ def train_neural_model(
     eval_norm: np.ndarray = None,
     out_dir: str = None,
     opt_config: tuple = None,   # (use_amp, amp_dtype) or None
+    early_stop_patience: int = 0,
+    val_freq: int = 1,
 ) -> Tuple[List[dict], float, dict]:
     _use_amp, _amp_dtype = opt_config if opt_config is not None else (False, torch.float32)
     t_data = torch.FloatTensor(train_norm).to(device)
@@ -284,6 +262,7 @@ def train_neural_model(
     history = []
     best_val_loss = float('inf')
     best_train_loss = float('inf')
+    stopper = EarlyStopper(early_stop_patience)
 
     interrupted = False
     try:
@@ -311,7 +290,7 @@ def train_neural_model(
             avg['epoch'] = epoch + 1
             avg['beta'] = round(beta, 4)
 
-            if eval_tensor is not None:
+            if eval_tensor is not None and (epoch + 1) % val_freq == 0:
                 model.eval()
                 with torch.no_grad():
                     with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
@@ -324,6 +303,11 @@ def train_neural_model(
                     torch.save({'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict()},
                                os.path.join(out_dir, 'model_best_val.pt'))
+                if stopper.update(avg['val_total']):
+                    print(f"\n[{model_name}] Early stopping at epoch {epoch+1} "
+                          f"(patience={early_stop_patience}, no improvement for {stopper._strikes} checks)")
+                    interrupted = True
+                    break
 
             if out_dir and avg['total'] < best_train_loss:
                 best_train_loss = avg['total']
@@ -368,6 +352,8 @@ def train_neural_model_temporal(
     eval_cond: dict | None = None,
     out_dir: str = None,
     opt_config: tuple = None,
+    early_stop_patience: int = 0,
+    val_freq: int = 1,
 ) -> Tuple[List[dict], float, dict]:
     """Training loop for autoregressive temporal models.
     Uses TemporalDataset or TemporalCondDataset; passes tuple to model.loss()."""
@@ -400,6 +386,7 @@ def train_neural_model_temporal(
     history = []
     best_val_loss = float('inf')
     best_train_loss = float('inf')
+    stopper = EarlyStopper(early_stop_patience)
 
     interrupted = False
     try:
@@ -440,7 +427,7 @@ def train_neural_model_temporal(
             avg['epoch'] = epoch + 1
             avg['beta']  = round(beta, 4)
 
-            if eval_dataset is not None:
+            if eval_dataset is not None and (epoch + 1) % val_freq == 0:
                 model.eval()
                 eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
                 val_running = {}
@@ -468,6 +455,11 @@ def train_neural_model_temporal(
                     torch.save({'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict()},
                                os.path.join(out_dir, 'model_best_val.pt'))
+                if stopper.update(avg['val_total']):
+                    print(f"\n[{model_name}] Early stopping at epoch {epoch+1} "
+                          f"(patience={early_stop_patience}, no improvement for {stopper._strikes} checks)")
+                    interrupted = True
+                    break
 
             if out_dir and avg['total'] < best_train_loss:
                 best_train_loss = avg['total']
@@ -531,6 +523,8 @@ def train_neural_model_mc(
     eval_cond: dict = None,
     out_dir: str = None,
     opt_config: tuple = None,   # (use_amp, amp_dtype) or None
+    early_stop_patience: int = 0,
+    val_freq: int = 1,
 ) -> Tuple[List[dict], float, dict]:
     """
     Loop de treino para modelos condicionados (_mc).
@@ -576,6 +570,7 @@ def train_neural_model_mc(
     history = []
     best_val_loss = float('inf')
     best_train_loss = float('inf')
+    stopper = EarlyStopper(early_stop_patience)
 
     interrupted = False
     try:
@@ -603,7 +598,7 @@ def train_neural_model_mc(
             avg['epoch'] = epoch + 1
             avg['beta'] = round(beta, 4)
 
-            if eval_tensor is not None:
+            if eval_tensor is not None and (epoch + 1) % val_freq == 0:
                 model.eval()
                 val_running = {}
                 val_n_samples = 0
@@ -626,6 +621,11 @@ def train_neural_model_mc(
                     torch.save({'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict()},
                                os.path.join(out_dir, 'model_best_val.pt'))
+                if stopper.update(avg['val_total']):
+                    print(f"\n[{model_name}] Early stopping at epoch {epoch+1} "
+                          f"(patience={early_stop_patience}, no improvement for {stopper._strikes} checks)")
+                    interrupted = True
+                    break
 
             if out_dir and avg['total'] < best_train_loss:
                 best_train_loss = avg['total']
@@ -757,6 +757,9 @@ def train_model(args):
     mf_warmup = args.mf_warmup if args.mf_warmup is not None else defaults.get("mf_warmup", 0)
     latent_size = args.latent_size if args.latent_size is not None else defaults["latent_size"]
     norm_mode = args.normalization_mode if args.normalization_mode is not None else defaults["normalization_mode"]
+    val_ratio = getattr(args, "val_ratio", 0.0) or 0.0
+    early_stop_patience = getattr(args, "early_stop_patience", 0) or 0
+    val_freq = getattr(args, "val_freq", 1) or 1
 
     latent_occ = args.latent_occ if args.latent_occ is not None else defaults.get("latent_occ")
     latent_amt = args.latent_amt if args.latent_amt is not None else defaults.get("latent_amt")
@@ -807,6 +810,9 @@ def train_model(args):
         "device": str(device),
         "n_samples": args.n_samples,
         "holdout_ratio": args.holdout_ratio,
+        "val_ratio": val_ratio,
+        "early_stop_patience": early_stop_patience,
+        "val_freq": val_freq,
         # Parâmetros de arquitetura
         "hidden_size":    hidden_size,
         "n_layers":       n_layers,
@@ -842,23 +848,33 @@ def train_model(args):
             data_path=args.data_path,
             normalization_mode="scale_only",
         )
-        train_raw, eval_raw, train_cond, eval_cond = temporal_holdout_split_with_cond(
-            data_raw_full, cond_arrays_full, args.holdout_ratio
-        )
+        train_raw, val_raw, test_raw, train_cond, val_cond, test_cond = \
+            temporal_train_val_test_split_with_cond(
+                data_raw_full, cond_arrays_full, args.holdout_ratio, val_ratio
+            )
     else:
         _, data_raw_full, _, _, station_names = load_data(
             data_path=args.data_path,
             normalization_mode="scale_only",
         )
-        train_raw, eval_raw = temporal_holdout_split(data_raw_full, args.holdout_ratio)
-        train_cond = None
-        eval_cond = None
+        train_raw, val_raw, test_raw = temporal_train_val_test_split(
+            data_raw_full, args.holdout_ratio, val_ratio
+        )
+        train_cond = val_cond = test_cond = None
     mu, std = compute_norm_params(train_raw, norm_mode)
     train_norm = normalize_with_params(train_raw, mu, std)
-    eval_norm = normalize_with_params(eval_raw, mu, std)
+    val_norm   = normalize_with_params(val_raw, mu, std) if val_raw is not None else None
+    test_norm  = normalize_with_params(test_raw, mu, std)  # noqa: F841 (available if needed)
+    # eval_norm/eval_cond → val set for in-loop checkpoint selection (None disables in-loop val)
+    # eval_raw            → test set for final evaluate_model() call
+    eval_norm  = val_norm
+    eval_raw   = test_raw
+    eval_cond  = val_cond
 
     input_size = train_norm.shape[1]
-    print(f"[{variant_name}] Dados totais: {data_raw_full.shape} | treino: {train_raw.shape} | holdout: {eval_raw.shape}")
+    val_shape_str = str(val_raw.shape) if val_raw is not None else "N/A"
+    print(f"[{variant_name}] Dados totais: {data_raw_full.shape} | treino: {train_raw.shape} | "
+          f"val: {val_shape_str} | test: {test_raw.shape}")
     print(f"[{variant_name}] Normalização ajustada apenas no treino ({norm_mode}).")
 
     # Parâmetros extras de arquitetura a passar ao modelo (apenas os não-None)
@@ -1008,6 +1024,8 @@ def train_model(args):
             eval_norm=eval_norm,
             out_dir=out_dir,
             opt_config=_opt_config,
+            early_stop_patience=early_stop_patience,
+            val_freq=val_freq,
         )
 
         # ── LDM: Estágio 2 (DDPM no espaço latente) ──────────────────────────
@@ -1028,6 +1046,8 @@ def train_model(args):
             eval_norm=eval_norm,
             out_dir=out_dir,
             opt_config=_opt_config,
+            early_stop_patience=early_stop_patience,
+            val_freq=val_freq,
         )
         interrupted = intr1 or intr2
         for entry in history:
@@ -1063,6 +1083,8 @@ def train_model(args):
             eval_cond=eval_cond,
             out_dir=out_dir,
             opt_config=_opt_config,
+            early_stop_patience=early_stop_patience,
+            val_freq=val_freq,
         )
 
         # ── Estágio 2: Flow Matching ──────────────────────────────────────────
@@ -1082,6 +1104,8 @@ def train_model(args):
             eval_cond=eval_cond,
             out_dir=out_dir,
             opt_config=_opt_config,
+            early_stop_patience=early_stop_patience,
+            val_freq=val_freq,
         )
 
         # ── Combina histórico (igual ao LDM) ──────────────────────────────────
@@ -1112,6 +1136,8 @@ def train_model(args):
             eval_cond=eval_cond,
             out_dir=out_dir,
             opt_config=_opt_config,
+            early_stop_patience=early_stop_patience,
+            val_freq=val_freq,
         )
     elif is_temporal:
         history, ms_per_epoch, final_opt_state, interrupted = train_neural_model_temporal(
@@ -1124,13 +1150,15 @@ def train_model(args):
             batch_size=batch_size,
             kl_warmup=kl_warmup,
             device=device,
-            mf_warmup=mf_warmup,            # ← new
+            mf_warmup=mf_warmup,
             model_name=model_name,
             optimizer_state=optimizer_state,
             eval_norm=eval_norm,
             eval_cond=eval_cond,
             out_dir=out_dir,
             opt_config=_opt_config,
+            early_stop_patience=early_stop_patience,
+            val_freq=val_freq,
         )
     else:
         history, ms_per_epoch, final_opt_state, interrupted = train_neural_model(
@@ -1146,6 +1174,8 @@ def train_model(args):
             eval_norm=eval_norm,
             out_dir=out_dir,
             opt_config=_opt_config,
+            early_stop_patience=early_stop_patience,
+            val_freq=val_freq,
         )
 
     # ── Se interrompido, carrega melhor checkpoint salvo em disco ──────────
@@ -1218,7 +1248,7 @@ def train_model(args):
         timing_n_samples=timing_n_samples,
         timing_n_trials=timing_n_trials,
     )
-    metrics['final_epoch'] = max_epochs
+    metrics['final_epoch'] = len(history)
     metrics['final_train_loss'] = history[-1]['total']
     metrics['best_train_loss'] = min(h['total'] for h in history)
     val_losses = [h['val_total'] for h in history if 'val_total' in h]
@@ -1227,10 +1257,13 @@ def train_model(args):
     metrics['training_ms_per_epoch'] = ms_per_epoch
     metrics['n_parameters'] = model.count_parameters()
     metrics["evaluation_protocol"] = {
-        "type": "temporal_holdout",
+        "type": "temporal_train_val_test" if val_ratio > 0 else "temporal_holdout",
         "holdout_ratio": args.holdout_ratio,
+        "val_ratio": val_ratio,
         "train_size": int(train_raw.shape[0]),
-        "eval_size": int(eval_raw.shape[0]),
+        "val_size": int(val_raw.shape[0]) if val_raw is not None else 0,
+        "test_size": int(eval_raw.shape[0]),
+        "early_stopped": interrupted and early_stop_patience > 0,
     }
 
     with open(os.path.join(out_dir, "metrics.json"), "w") as f:
@@ -1274,7 +1307,17 @@ def main():
     parser.add_argument("--n_samples", type=int, default=5000,
                         help="Amostras a gerar na avaliação")
     parser.add_argument("--holdout_ratio", type=float, default=0.0,
-                        help="Proporção final da série usada como avaliação temporal")
+                        help="Proporção final da série usada como test set temporal")
+    parser.add_argument("--val_ratio", type=float, default=0.0,
+                        help="Fração do pré-test reservada para validação (split 3-vias). "
+                             "0.0 (padrão) mantém comportamento atual (sem validação interna). "
+                             "Exemplo: --val_ratio 0.1 usa 10%% do pré-holdout como val.")
+    parser.add_argument("--early_stop_patience", type=int, default=0,
+                        help="Early stopping: para após N checks de val sem melhora. "
+                             "0 (padrão) desativado. Requer --val_ratio > 0.")
+    parser.add_argument("--val_freq", type=int, default=1,
+                        help="Valida a cada N épocas (reduz overhead). "
+                             "Paciência do early stopping conta em checks, não épocas.")
     # ── Parâmetros de arquitetura ─────────────────────────────────────────────
     parser.add_argument("--hidden_size", type=int, default=None,
                         help="Tamanho das camadas ocultas (real_nvp, flow_match)")

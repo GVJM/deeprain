@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 _DEFAULT_QUEUE = Path(__file__).parent / "TRAINING_QUEUE.json"
-OUTPUTS_DIR    = Path(__file__).parent / "outputs"
+OUTPUTS_DIR    = Path(__file__).parent / "outputs_v3"
 LOG_FILE    = OUTPUTS_DIR / "batch_log.jsonl"
 
 # All fields train_model(args) reads; None → falls back to MODEL_DEFAULTS / ARCH_DEFAULTS

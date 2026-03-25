@@ -32,6 +32,11 @@ python compare_ar.py --skip_rollouts                          # Tier 1 only (<1 
 python compare_ar.py --models ar_vae ar_mean_flow --n_days 30 --n_scenarios 5  # quick Tier 2 test
 python compare_ar.py --n_days 365 --n_scenarios 50            # full run
 python compare_ar.py --skip_rollouts --output_dir ./outputs_sabesp  # if AR models live in outputs_sabesp/
+python compare_ar.py --n_workers 4 --n_days 365 --n_scenarios 50    # parallel Tier 2 rollouts (multi-GPU)
+python compare_ar.py --force_rollouts --models ar_vae               # recompute rollouts even if cached
+python compare_ar.py --top_n_per_family 3                           # keep only top-3 per family in charts
+python compare_ar.py --recompute_tier1 --n_samples 1000 --models ar_vae  # re-eval Tier 1 with 1000 samples (overwrites metrics.json)
+python compare_ar.py --recompute_tier1 --n_samples 1000 --skip_rollouts  # re-eval all models, Tier 1 only
 
 # Ablation study for hurdle_vae_cond
 python ablation_hurdle_vae_cond.py --skip_training            # re-plot saved results
@@ -83,10 +88,10 @@ Full registry: `PrecipModels/models/__init__.py`
 ## Running Tests
 
 ```bash
-conda run -n deeptutorial python -m pytest tests/ -v
+conda run -n pytorch_env python -m pytest tests/ -v
 ```
 
-- `deeptutorial` is the conda env with PyTorch + flask + requests
+- `pytorch_env` is the conda env with PyTorch + flask + requests
 - Tests cover: train --skip_eval, evaluate.py, queue_server, worker, make_queue
 
 ## Architecture
@@ -99,6 +104,7 @@ PrecipModels/
 ├── worker.py           # distributed training worker (run on each machine)
 ├── worker_config.json.example  # worker configuration template
 ├── compare.py          # train all models + comparative analysis
+├── compare_ar.py       # AR model Tier 1 + Tier 2 comparison (rollouts, seasonal, extremes)
 ├── validate_holdout.py # holdout validation
 ├── plot_model.py       # visualize model outputs
 ├── data_utils.py       # data loading, normalization
@@ -147,3 +153,5 @@ dados_barragens_btg/    # BTG dam data
 - **`compare_ar.py` rollout loader:** reads int arch params automatically but float params (`occ_weight`, `jvp_eps`, `mf_ratio`) must be explicitly listed in the float-param loop (~line 240).
 - **Distributed training:** `queue_server.py` runs on Oracle VM; `worker.py` polls it. Queue state persisted in `TRAINING_QUEUE.json`/`QUEUE_*.json` (`_status` field). Use `--skip_eval` on workers — eval jobs auto-inserted at gpu_tier=0. See `docs/superpowers/specs/2026-03-18-distributed-training-design.md`.
 - **evaluate.py float params:** Same rule as compare_ar.py — `occ_weight`, `jvp_eps`, `mf_ratio` must be cast as `float()` when loading from config.json.
+- **`ar_flow_map_ms` is in `OUTLIER_MODELS`:** excluded from top-level Tier 2 scenario charts (but kept in Tier 1 tables and `families/` subdirs). Constant `OUTLIER_MODELS` in `compare_ar.py`. Add models here when pathological outputs distort shared axes.
+- **Tier 2 performance at n_scenarios > 200:** metric and plot functions are vectorized (cumsum rolling sum, diff-based RLE, searchsorted exceedance). Per-family plots log per-step timing via `_tplot` — slow `seasonal` or `rxnday` steps indicate a regression.

@@ -430,6 +430,23 @@ def _mean_autocorr(data: np.ndarray, max_lag: int = 30) -> np.ndarray:
     return np.stack([_autocorr_1d(data[:, s], max_lag) for s in range(data.shape[1])]).mean(axis=0)
 
 
+def _acf_batched(data3d: np.ndarray, max_lag: int) -> np.ndarray:
+    """data3d: (B, T, S) → ACF averaged over S, shape (B, max_lag).
+
+    Vectorized over batch (B) and stations (S); only loops over max_lag=30 lags.
+    Replaces B*S calls to _autocorr_1d with 30 array multiplications.
+    """
+    B, T, S = data3d.shape
+    mu  = data3d.mean(axis=1, keepdims=True)          # (B, 1, S)
+    x   = data3d - mu                                 # (B, T, S) — zero-mean
+    var = (x ** 2).mean(axis=1)                       # (B, S)
+    acfs = np.zeros((B, max_lag))
+    for lag in range(1, max_lag + 1):
+        cov = (x[:, :-lag, :] * x[:, lag:, :]).mean(axis=1)   # (B, S)
+        acfs[:, lag - 1] = (cov / np.maximum(var, 1e-12)).mean(axis=1)
+    return acfs
+
+
 def multi_lag_autocorr_rmse(
     scenarios: np.ndarray,
     observed: np.ndarray,
@@ -445,10 +462,8 @@ def multi_lag_autocorr_rmse(
     Returns:
         float — RMSE médio sobre os lags e estações
     """
-    obs_acf = _mean_autocorr(observed, max_lag)          # (max_lag,)
-    sc_acfs = np.stack([_mean_autocorr(scenarios[i], max_lag)
-                        for i in range(scenarios.shape[0])])
-    sc_mean_acf = sc_acfs.mean(axis=0)                   # (max_lag,)
+    obs_acf     = _mean_autocorr(observed, max_lag)             # (max_lag,)
+    sc_mean_acf = _acf_batched(scenarios, max_lag).mean(axis=0) # (max_lag,)
     return float(np.sqrt(np.mean((obs_acf - sc_mean_acf) ** 2)))
 
 
@@ -480,11 +495,18 @@ def transition_probability_error(
 
     obs_ww, obs_wd, obs_dw, obs_dd = _trans(observed)
 
-    # Average transition probs across scenarios
-    sc_ww = np.mean([_trans(scenarios[i])[0] for i in range(scenarios.shape[0])], axis=0)
-    sc_wd = np.mean([_trans(scenarios[i])[1] for i in range(scenarios.shape[0])], axis=0)
-    sc_dw = np.mean([_trans(scenarios[i])[2] for i in range(scenarios.shape[0])], axis=0)
-    sc_dd = np.mean([_trans(scenarios[i])[3] for i in range(scenarios.shape[0])], axis=0)
+    # Average transition probs across scenarios — vectorized over all n_sc at once
+    wet_sc = (scenarios > threshold).astype(float)        # (n_sc, T, S)
+    n_w_sc = wet_sc[:, :-1, :].sum(axis=1)                # (n_sc, S)
+    n_d_sc = (1.0 - wet_sc[:, :-1, :]).sum(axis=1)
+    sc_ww = ((wet_sc[:, :-1, :] * wet_sc[:, 1:, :]).sum(axis=1)
+             / np.maximum(n_w_sc, 1)).mean(axis=0)
+    sc_wd = ((wet_sc[:, :-1, :] * (1.0 - wet_sc[:, 1:, :])).sum(axis=1)
+             / np.maximum(n_w_sc, 1)).mean(axis=0)
+    sc_dw = (((1.0 - wet_sc[:, :-1, :]) * wet_sc[:, 1:, :]).sum(axis=1)
+             / np.maximum(n_d_sc, 1)).mean(axis=0)
+    sc_dd = (((1.0 - wet_sc[:, :-1, :]) * (1.0 - wet_sc[:, 1:, :])).sum(axis=1)
+             / np.maximum(n_d_sc, 1)).mean(axis=0)
 
     e_ww = float(np.abs(obs_ww - sc_ww).mean())
     e_wd = float(np.abs(obs_wd - sc_wd).mean())
@@ -509,15 +531,18 @@ def max_consecutive_dry_days_error(
         float — erro absoluto médio sobre estações
     """
     def _max_cdd(data: np.ndarray) -> np.ndarray:
-        S = data.shape[1]
-        result = np.zeros(S)
-        for i in range(S):
-            dry = data[:, i] <= threshold
-            max_run = cur = 0
-            for v in dry:
-                cur = cur + 1 if v else 0
-                max_run = max(max_run, cur)
-            result[i] = max_run
+        """data: (T, S) → max consecutive dry days per station via diff-based RLE."""
+        dry = (data <= threshold)
+        T, S = dry.shape
+        pad = np.zeros((1, S), dtype=bool)
+        padded = np.concatenate([pad, dry, pad], axis=0)  # (T+2, S)
+        changes = np.diff(padded.astype(np.int8), axis=0)  # (T+1, S)
+        result = np.zeros(S, dtype=float)
+        for s in range(S):
+            starts = np.where(changes[:, s] == 1)[0]
+            ends   = np.where(changes[:, s] == -1)[0]
+            if len(starts) > 0:
+                result[s] = float((ends - starts).max())
         return result
 
     obs_cdd = _max_cdd(observed)
@@ -598,6 +623,127 @@ def monthly_variance_error(
     sc_var = np.mean(sc_var_all, axis=0)  # (12, S)
 
     return float(np.abs(obs_var - sc_var).mean())
+
+
+def rx5day_distribution_error(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+    window: int = 5,
+) -> float:
+    """
+    Wasserstein-1 entre a distribuição do acumulado máximo em `window` dias
+    consecutivos (Rxnday) dos cenários vs. observado, médio sobre estações.
+
+    Captura se o modelo reproduz bem a cauda de eventos extremos acumulados
+    (e.g. cheias multi-dia), seguindo a recomendação ETCCDI de índices climáticos.
+
+    Args:
+        scenarios:  (n_sc, T, S) — cenários em mm/dia
+        observed:   (N, S) — dados observados em mm/dia
+        window:     tamanho da janela de acumulação em dias (default 5 = Rx5day)
+
+    Returns:
+        float — Wasserstein-1 médio sobre estações
+    """
+    n_sc, T, S = scenarios.shape
+    errors = []
+
+    # Precompute cumsum for vectorized rolling sum (avoids n_sc np.convolve calls per station)
+    cs_sc  = np.cumsum(scenarios, axis=1)  # (n_sc, T, S)
+    cs_obs = np.cumsum(observed,  axis=0)  # (N, S)
+
+    for s in range(S):
+        obs_rx = cs_obs[window:, s] - cs_obs[:-window, s]          # (N-window+1,)
+        sc_rx  = (cs_sc[:, window:, s] - cs_sc[:, :-window, s]).ravel()  # (n_sc*(T-window+1),)
+        errors.append(stats.wasserstein_distance(obs_rx, sc_rx))
+
+    return float(np.mean(errors))
+
+
+def seasonal_accumulation_error(
+    scenarios: np.ndarray,
+    observed: np.ndarray,
+    obs_months: np.ndarray,
+    wet_months: tuple = (10, 11, 0, 1, 2, 3),
+    start_month: int = 0,
+) -> dict:
+    """
+    Wasserstein-1 entre a distribuição dos totais mensais de chuva na estação
+    chuvosa (Nov–Abr) e seca (Mai–Out), médio sobre estações.
+
+    Captura se o modelo reproduz corretamente o volume acumulado sazonal —
+    relevante para gestão de reservatórios.
+
+    Args:
+        scenarios:   (n_sc, T, S) — cenários em mm/dia
+        observed:    (N, S) — dados observados em mm/dia
+        obs_months:  (N,) mês 0-indexado (0=Jan .. 11=Dez) para cada linha de observed
+        wet_months:  meses da estação chuvosa (default Nov–Abr, 0-indexado)
+        start_month: mês inicial dos cenários (0=Jan)
+
+    Returns:
+        dict com 'wet_season_error' e 'dry_season_error' (floats)
+    """
+    dry_months = tuple(m for m in range(12) if m not in wet_months)
+    n_sc, T, S = scenarios.shape
+    MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    _ml, _m, _d = [], start_month, 0
+    for _t in range(T):
+        _ml.append(_m)
+        _d += 1
+        if _d >= MONTH_DAYS[_m % 12]:
+            _m = (_m + 1) % 12
+            _d = 0
+    sc_months = np.array(_ml)
+
+    def _monthly_totals_2d(data: np.ndarray, months_mask: np.ndarray, season: tuple) -> np.ndarray:
+        """data: (T, S) → (n_runs, S)"""
+        totals = []
+        for m in season:
+            indices = np.where(months_mask == m)[0]
+            if len(indices) == 0:
+                continue
+            breaks = np.where(np.diff(indices) > 1)[0] + 1
+            for run in np.split(indices, breaks):
+                totals.append(data[run].sum(axis=0))  # (S,)
+        return np.array(totals) if totals else np.empty((0, data.shape[1]))
+
+    def _monthly_totals_batched(data3d: np.ndarray, months_mask: np.ndarray, season: tuple) -> np.ndarray:
+        """data3d: (n_sc, T, S) → (n_runs, n_sc, S) — all scenarios at once."""
+        totals = []
+        for m in season:
+            indices = np.where(months_mask == m)[0]
+            if len(indices) == 0:
+                continue
+            breaks = np.where(np.diff(indices) > 1)[0] + 1
+            for run in np.split(indices, breaks):
+                totals.append(data3d[:, run, :].sum(axis=1))  # (n_sc, S)
+        if not totals:
+            return np.empty((0, data3d.shape[0], data3d.shape[2]))
+        return np.stack(totals, axis=0)  # (n_runs, n_sc, S)
+
+    obs_wet = _monthly_totals_2d(observed, obs_months, wet_months)  # (n_runs, S)
+    obs_dry = _monthly_totals_2d(observed, obs_months, dry_months)
+
+    # Vectorize over all n_sc scenarios at once — eliminates the n_sc inner loop
+    sc_wet_batched = _monthly_totals_batched(scenarios, sc_months, wet_months)  # (n_runs, n_sc, S)
+    sc_dry_batched = _monthly_totals_batched(scenarios, sc_months, dry_months)
+
+    wet_errors, dry_errors = [], []
+    for s in range(S):
+        # Flatten (n_runs, n_sc) → 1-D pool of all scenario monthly totals for station s
+        sc_wet = sc_wet_batched[:, :, s].ravel() if sc_wet_batched.shape[0] > 0 else np.array([])
+        sc_dry = sc_dry_batched[:, :, s].ravel() if sc_dry_batched.shape[0] > 0 else np.array([])
+
+        if obs_wet.shape[0] > 0 and len(sc_wet) > 0:
+            wet_errors.append(stats.wasserstein_distance(obs_wet[:, s], sc_wet))
+        if obs_dry.shape[0] > 0 and len(sc_dry) > 0:
+            dry_errors.append(stats.wasserstein_distance(obs_dry[:, s], sc_dry))
+
+    return {
+        "wet_season_error": float(np.mean(wet_errors)) if wet_errors else float("nan"),
+        "dry_season_error": float(np.mean(dry_errors)) if dry_errors else float("nan"),
+    }
 
 
 def inter_scenario_cv(scenarios: np.ndarray) -> float:

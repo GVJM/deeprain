@@ -24,9 +24,8 @@ import torch
 from data_utils import load_data, load_data_with_cond
 from metrics import evaluate_model
 from models import get_model
-from train import (
-    _TEMPORAL_MODELS,
-    _MC_MODELS,
+from train import _TEMPORAL_MODELS, _MC_MODELS
+from data_utils import (
     temporal_holdout_split,
     temporal_holdout_split_with_cond,
     compute_norm_params,

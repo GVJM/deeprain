@@ -181,10 +181,10 @@ class ARLatentFM(BaseModel):
             return torch.zeros(batch_size, self.cond_dim, device=device)
         return self.cond_block(cond)
 
-    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
+    def _make_day_cond(self, day: int, batch_size: int, device: torch.device) -> dict:
         """Build conditioning dict for a given day-of-year (1–366)."""
-        angle = 2.0 * math.pi * doy / 365.25
-        month_idx = int((doy - 1) * 12 / 365) % 12
+        angle = 2.0 * math.pi * day / 365.25
+        month_idx = int((day - 1) * 12 / 365) % 12
         return {
             'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
             'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
@@ -282,7 +282,7 @@ class ARLatentFM(BaseModel):
 
     @torch.no_grad()
     def sample(self, n: int, steps: int | None = None, method=None,
-               start_doy: int = 1) -> Tensor:
+               start_day: int = 1) -> Tensor:
         """
         Generates n samples via autoregressive rollout from a zero window.
 
@@ -297,8 +297,8 @@ class ARLatentFM(BaseModel):
 
         # Warmup: let GRU state converge
         for i in range(self.window_size):
-            doy = (start_doy - self.window_size + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+            day = (start_day - self.window_size + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, 1, device)
             h = self._encode_window(window)
             cond_emb = self._cond_embed(cond, 1, device)
             z = self._flow_sample(h, cond_emb, 1)
@@ -310,8 +310,8 @@ class ARLatentFM(BaseModel):
         for i in range(n):
             if i > 0 and i % log_every == 0:
                 print(f"  [ar_latent_fm] sampling step {i}/{n}...", flush=True)
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+            day = (start_day + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, 1, device)
             h = self._encode_window(window)
             cond_emb = self._cond_embed(cond, 1, device)
             z = self._flow_sample(h, cond_emb, 1)
@@ -327,7 +327,7 @@ class ARLatentFM(BaseModel):
         seed_window: Tensor,
         n_days: int,
         n_scenarios: int = 10,
-        start_doy: int = 1,
+        start_day: int = 1,
     ) -> Tensor:
         """
         Generates multiple scenarios via autoregressive rollout.
@@ -339,7 +339,7 @@ class ARLatentFM(BaseModel):
             seed_window: (W, S) — initial historical window (normalized)
             n_days:      number of days to generate
             n_scenarios: number of parallel scenarios
-            start_doy:   day-of-year (1–366) of the first generated day
+            start_day:   day-of-year (1–366) of the first generated day
 
         Returns:
             Tensor (n_scenarios, n_days, n_stations)
@@ -356,8 +356,8 @@ class ARLatentFM(BaseModel):
 
         days = []
         for i in range(n_days):
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, n_scenarios, device)
+            day = (start_day + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, n_scenarios, device)
             h = self._encode_window(window)          # (n_sc, H)
             cond_emb = self._cond_embed(cond, n_scenarios, device)
             z = self._flow_sample(h, cond_emb, n_scenarios)    # (n_sc, L)

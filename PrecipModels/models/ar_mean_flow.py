@@ -75,10 +75,10 @@ class ARMeanFlow(BaseModel):
             return torch.zeros(batch_size, self.cond_dim, device=device)
         return self.cond_block(cond)
 
-    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
+    def _make_day_cond(self, day: int, batch_size: int, device: torch.device) -> dict:
         """Build conditioning dict for a given day-of-year (1–366)."""
-        angle = 2.0 * math.pi * doy / 365.25
-        month_idx = int((doy - 1) * 12 / 365) % 12
+        angle = 2.0 * math.pi * day / 365.25
+        month_idx = int((day - 1) * 12 / 365) % 12
         return {
             'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
             'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
@@ -155,12 +155,12 @@ class ARMeanFlow(BaseModel):
         return (z_1 - self.velocity(z_1, r_emb, t_emb, h_cond)).clamp(min=0.0)
 
     @torch.no_grad()
-    def sample(self, n, steps=None, method=None, start_doy: int = 1):
+    def sample(self, n, steps=None, method=None, start_day: int = 1):
         device = next(self.parameters()).device
         window = torch.zeros(1, self.window_size, self.n_stations, device=device)
         for i in range(self.window_size):
-            doy = (start_doy - self.window_size + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+            day = (start_day - self.window_size + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, 1, device)
             h = self._encode_window(window)
             cond_emb = self._cond_embed(cond, 1, device)
             h_cond = torch.cat([h, cond_emb], dim=-1)
@@ -171,8 +171,8 @@ class ARMeanFlow(BaseModel):
         for i in range(n):
             if i > 0 and i % log_every == 0:
                 print(f"  [ar_mean_flow] sampling step {i}/{n}...", flush=True)
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+            day = (start_day + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, 1, device)
             h = self._encode_window(window)
             cond_emb = self._cond_embed(cond, 1, device)
             h_cond = torch.cat([h, cond_emb], dim=-1)
@@ -182,13 +182,13 @@ class ARMeanFlow(BaseModel):
         return torch.cat(samples, dim=0)
 
     @torch.no_grad()
-    def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_doy: int = 1):
+    def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_day: int = 1):
         device = next(self.parameters()).device
         window = seed_window.to(device).unsqueeze(0).expand(n_scenarios, -1, -1).clone()
         days = []
         for i in range(n_days):
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, n_scenarios, device)
+            day = (start_day + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, n_scenarios, device)
             h = self._encode_window(window)
             cond_emb = self._cond_embed(cond, n_scenarios, device)
             h_cond = torch.cat([h, cond_emb], dim=-1)

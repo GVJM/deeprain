@@ -220,7 +220,7 @@ import torch
 m = get_model('ar_flow_map_ms', input_size=10, n_steps=10, hidden_size=32,
               n_layers=2, rnn_hidden=16, rnn_type='gru', window_size=7, t_embed_dim=16)
 print('n_steps:', m.n_steps)  # expect 10
-s = m.sample(3, start_doy=1)
+s = m.sample(3, start_day=1)
 print('sample shape:', s.shape)  # expect (3, 10)
 "
 ```

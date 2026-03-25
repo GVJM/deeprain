@@ -381,11 +381,11 @@ class LatentFlowWrapper(BaseModel):
             ).astype(np.float32)
             # Encodings sazonais: índice i+W representa o dia de destino
             indices = np.arange(W, N)
-            doy = (indices % 365) / 365.25
+            day = (indices % 365) / 365.25
             month = ((indices % 365) // 30) / 11.0
             self._temporal_cache = np.column_stack([
-                np.sin(2 * np.pi * doy),
-                np.cos(2 * np.pi * doy),
+                np.sin(2 * np.pi * day),
+                np.cos(2 * np.pi * day),
                 np.sin(2 * np.pi * month),
                 np.cos(2 * np.pi * month),
             ]).astype(np.float32)

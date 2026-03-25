@@ -8,6 +8,7 @@ de normalização e retorno dos parâmetros para denormalização posterior.
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from typing import Optional, Tuple, List
 
 
 # Caminho padrão relativo a PrecipModels/
@@ -265,3 +266,124 @@ def load_data_with_cond(
 def denormalize(data_norm: np.ndarray, mu: np.ndarray, std: np.ndarray) -> np.ndarray:
     """Inverte a normalização: retorna mm/dia."""
     return data_norm * std + mu
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Temporal split and normalization helpers (shared by train.py and evaluate.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def temporal_holdout_split_with_cond(
+    data_raw: np.ndarray,
+    cond_arrays: dict,
+    holdout_ratio: float,
+) -> Tuple[np.ndarray, np.ndarray, dict, dict]:
+    """
+    Split temporal para dados com condicionamento.
+    Aplica o mesmo índice de corte a data_raw e a todos os arrays em cond_arrays.
+
+    Returns:
+        train_raw, eval_raw, train_cond, eval_cond
+    """
+    if holdout_ratio <= 0:
+        return data_raw, data_raw, cond_arrays, cond_arrays
+
+    n_total = data_raw.shape[0]
+    n_eval = max(1, int(round(n_total * holdout_ratio)))
+    n_eval = min(n_eval, n_total - 1)
+    cut = n_total - n_eval
+
+    train_raw = data_raw[:cut]
+    eval_raw = data_raw[cut:]
+    train_cond = {k: v[:cut] for k, v in cond_arrays.items()}
+    eval_cond = {k: v[cut:] for k, v in cond_arrays.items()}
+    return train_raw, eval_raw, train_cond, eval_cond
+
+
+def temporal_holdout_split(data_raw: np.ndarray, holdout_ratio: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split temporal (sem embaralhar):
+      - treino = parte inicial
+      - avaliação = parte final (holdout)
+    """
+    if holdout_ratio <= 0:
+        return data_raw, data_raw
+
+    n_total = data_raw.shape[0]
+    n_eval = max(1, int(round(n_total * holdout_ratio)))
+    n_eval = min(n_eval, n_total - 1)
+    return data_raw[:-n_eval], data_raw[-n_eval:]
+
+
+def temporal_train_val_test_split(
+    data_raw: np.ndarray,
+    holdout_ratio: float,
+    val_ratio: float,
+) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray]:
+    """
+    3-way temporal split (chronological, no shuffle):
+      [train | val | test]
+    - test  = last holdout_ratio fraction (same as current holdout)
+    - val   = last val_ratio fraction of pre-test data (None when val_ratio <= 0)
+    - train = everything before val
+
+    When val_ratio=0 returns (train, None, test) — backward-compatible with 2-way split.
+    """
+    n = data_raw.shape[0]
+    n_test = max(1, int(round(n * holdout_ratio))) if holdout_ratio > 0 else 0
+    n_test = min(n_test, n - 1)
+    n_remaining = n - n_test
+    n_val = max(1, int(round(n_remaining * val_ratio))) if val_ratio > 0 else 0
+    if n_val > 0:
+        n_val = min(n_val, n_remaining - 1)
+    n_train = n_remaining - n_val
+
+    train_raw = data_raw[:n_train]
+    val_raw   = data_raw[n_train:n_train + n_val] if n_val > 0 else None
+    test_raw  = data_raw[n_train + n_val:] if n_test > 0 else data_raw
+    return train_raw, val_raw, test_raw
+
+
+def temporal_train_val_test_split_with_cond(
+    data_raw: np.ndarray,
+    cond_arrays: dict,
+    holdout_ratio: float,
+    val_ratio: float,
+) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, dict, Optional[dict], dict]:
+    """
+    3-way temporal split for data + conditioning arrays.
+    Returns: train_raw, val_raw, test_raw, train_cond, val_cond, test_cond
+    val_raw and val_cond are None when val_ratio <= 0.
+    """
+    n = data_raw.shape[0]
+    n_test = max(1, int(round(n * holdout_ratio))) if holdout_ratio > 0 else 0
+    n_test = min(n_test, n - 1)
+    n_remaining = n - n_test
+    n_val = max(1, int(round(n_remaining * val_ratio))) if val_ratio > 0 else 0
+    if n_val > 0:
+        n_val = min(n_val, n_remaining - 1)
+    n_train = n_remaining - n_val
+
+    train_raw = data_raw[:n_train]
+    val_raw   = data_raw[n_train:n_train + n_val] if n_val > 0 else None
+    test_raw  = data_raw[n_train + n_val:] if n_test > 0 else data_raw
+
+    train_cond = {k: v[:n_train] for k, v in cond_arrays.items()}
+    val_cond   = {k: v[n_train:n_train + n_val] for k, v in cond_arrays.items()} if n_val > 0 else None
+    test_cond  = {k: v[n_train + n_val:] for k, v in cond_arrays.items()} if n_test > 0 else cond_arrays
+    return train_raw, val_raw, test_raw, train_cond, val_cond, test_cond
+
+
+def compute_norm_params(train_raw: np.ndarray, normalization_mode: str) -> Tuple[np.ndarray, np.ndarray]:
+    std = np.std(train_raw, axis=0, keepdims=True)
+    std = np.clip(std, 1e-8, None)
+    if normalization_mode == "scale_only":
+        mu = np.zeros((1, train_raw.shape[1]), dtype=train_raw.dtype)
+    elif normalization_mode == "standardize":
+        mu = np.mean(train_raw, axis=0, keepdims=True)
+    else:
+        raise ValueError(f"normalization_mode inválido: '{normalization_mode}'")
+    return mu, std
+
+
+def normalize_with_params(data_raw: np.ndarray, mu: np.ndarray, std: np.ndarray) -> np.ndarray:
+    return (data_raw - mu) / std

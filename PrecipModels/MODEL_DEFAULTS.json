@@ -239,7 +239,7 @@
     "ar_real_nvp": {
         "normalization_mode": "scale_only",
         "max_epochs": 300,
-        "lr": 0.0001,
+        "lr": 0.0003,
         "batch_size": 128,
         "kl_warmup": 0,
         "latent_size": 0},
@@ -253,14 +253,14 @@
     "ar_glow": {
         "normalization_mode": "scale_only",
         "max_epochs": 300,
-        "lr": 0.0001,
+        "lr": 0.001,
         "batch_size": 128,
         "kl_warmup": 0,
         "latent_size": 0},
     "ar_glow_lstm": {
         "normalization_mode": "scale_only",
         "max_epochs": 300,
-        "lr": 0.0001,
+        "lr": 0.001,
         "batch_size": 128,
         "kl_warmup": 0,
         "latent_size": 0},

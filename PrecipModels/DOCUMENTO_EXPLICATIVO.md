@@ -3596,13 +3596,13 @@ Rollout autônomo (geração):
 Todos os modelos AR implementam:
 
 ```python
-def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_doy=1):
+def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_day=1):
     """
     Args:
         seed_window: Tensor (W, S) — janela real de inicialização
         n_days:      int — número de dias a gerar
         n_scenarios: int — cenários paralelos (mesma seed, divergem no ruído)
-        start_doy:   int — dia do ano do primeiro dia gerado (para condicionamento)
+        start_day:   int — dia do ano do primeiro dia gerado (para condicionamento)
     Returns:
         Tensor (n_scenarios, n_days, n_stations)
     """
@@ -3611,7 +3611,7 @@ def sample_rollout(self, seed_window, n_days, n_scenarios=10, start_doy=1):
 
     days = []
     for i in range(n_days):
-        doy = (start_doy + i - 1) % 365 + 1
+        day = (start_day + i - 1) % 365 + 1
         h = self._encode_window(window)       # (n_scenarios, rnn_hidden)
         y = self._generate_sample(h, n_scenarios)  # (n_scenarios, n_stations)
         window = cat([window[:, 1:], y.unsqueeze(1)], dim=1)  # desloca janela
@@ -4455,7 +4455,7 @@ A combinação rede neural (para distribuições marginais) + cópula gaussiana 
 | **CVAE** | Conditional VAE — VAE que recebe uma variável de condição no encoder e decoder, aprendendo `p(x|c)` |
 | **DDIM** | Denoising Diffusion Implicit Models — amostragem determinística para DDPM |
 | **DDPM** | Denoising Diffusion Probabilistic Models — modelo de difusão |
-| **Day-of-Year (DoY)** | Número do dia no ano (1–366). Usado como condicionamento sazonal contínuo via sin/cos: `(sin(2π·doy/365.25), cos(2π·doy/365.25))` |
+| **Day-of-Year (day)** | Número do dia no ano (1–366). Usado como condicionamento sazonal contínuo via sin/cos: `(sin(2π·day/365.25), cos(2π·day/365.25))` |
 | **ELBO** | Evidence Lower Bound — objetivo variacional do VAE |
 | **EMA** | Exponential Moving Average — média ponderada exponencial dos parâmetros |
 | **FiLM** | Feature-wise Linear Modulation — modulação de ativações via escala e translação aprendidas de uma condição externa (`h * (1 + scale) + shift`) |

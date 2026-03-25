@@ -79,56 +79,7 @@ SOLVER_GRID = [
 # COMPOSITE SCORE
 # ──────────────────────────────────────────────────────────
 
-QUALITY_METRICS = [
-    ("mean_wasserstein",       "Wasserstein Médio",     True),   # True = menor é melhor
-    ("corr_rmse",              "Corr RMSE",             True),
-    ("wet_day_freq_error_mean","Wet Day Freq Err",      True),
-    ("extreme_q90_mean",       "Quantil 90% Err",       True),
-    ("extreme_q95_mean",       "Quantil 95% Err",       True),
-    ("extreme_q99_mean",       "Quantil 99% Err",       True),
-    ("energy_score",           "Energy Score",          True),
-]
-
-
-def _metric_array(all_metrics: dict, model_names: list, metric_key: str) -> np.ndarray:
-    """Converte métrica por modelo para vetor float, com fallback para NaN."""
-    vals = []
-    for m in model_names:
-        v = all_metrics[m].get(metric_key, np.nan)
-        try:
-            vals.append(float(v))
-        except (TypeError, ValueError):
-            vals.append(float("nan"))
-    return np.array(vals, dtype=float)
-
-
-def compute_composite(all_metrics: dict) -> dict:
-    """
-    Pontuação composta: normaliza cada métrica de qualidade em [0,1], faz média.
-    0 = melhor, 1 = pior (normalização min-max).
-    """
-    model_names = list(all_metrics.keys())
-    scores = {}
-    normalized = {m: {} for m in model_names}
-
-    for metric_key, _, lower_is_better in QUALITY_METRICS:
-        vals = _metric_array(all_metrics, model_names, metric_key)
-        valid = ~np.isnan(vals)
-        if valid.sum() < 2:
-            continue
-        mn, mx = vals[valid].min(), vals[valid].max()
-        rng = mx - mn + 1e-12
-        norm = (vals - mn) / rng
-        if not lower_is_better:
-            norm = 1.0 - norm
-        for i, m in enumerate(model_names):
-            normalized[m][metric_key] = float(norm[i]) if valid[i] else float('nan')
-
-    for m in model_names:
-        vals = [v for v in normalized[m].values() if not np.isnan(v)]
-        scores[m] = float(np.mean(vals)) if vals else float('nan')
-
-    return scores, normalized
+from scoring import QUALITY_METRICS, _metric_array, compute_composite
 
 
 # ──────────────────────────────────────────────────────────

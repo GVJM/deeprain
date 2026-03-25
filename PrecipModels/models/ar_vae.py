@@ -140,10 +140,10 @@ class ARVAE(BaseModel):
             return torch.zeros(batch_size, self.cond_dim, device=device)
         return self.cond_block(cond)
 
-    def _make_day_cond(self, doy: int, batch_size: int, device: torch.device) -> dict:
+    def _make_day_cond(self, day: int, batch_size: int, device: torch.device) -> dict:
         """Build conditioning dict for a given day-of-year (1–366)."""
-        angle = 2.0 * math.pi * doy / 365.25
-        month_idx = int((doy - 1) * 12 / 365) % 12
+        angle = 2.0 * math.pi * day / 365.25
+        month_idx = int((day - 1) * 12 / 365) % 12
         return {
             'month':   torch.full((batch_size,), month_idx, dtype=torch.long,  device=device),
             'day_sin': torch.full((batch_size,), math.sin(angle),               device=device),
@@ -210,7 +210,7 @@ class ARVAE(BaseModel):
         return {"total": total, "mse": mse, "kl": kl, "occ": occ_loss}
 
     @torch.no_grad()
-    def sample(self, n: int, steps=None, method=None, start_doy: int = 1) -> Tensor:
+    def sample(self, n: int, steps=None, method=None, start_day: int = 1) -> Tensor:
         """
         Gera n amostras via rollout autorregressivo a partir de janela zero.
 
@@ -219,7 +219,7 @@ class ARVAE(BaseModel):
 
         Args:
             n:         número de amostras a retornar
-            start_doy: dia do ano (1–366) do primeiro passo de coleta
+            start_day: dia do ano (1–366) do primeiro passo de coleta
 
         Returns:
             Tensor (n, n_stations) — espaço normalizado
@@ -229,8 +229,8 @@ class ARVAE(BaseModel):
 
         # Warmup: deixa o estado interno do GRU convergir
         for i in range(self.window_size):
-            doy = (start_doy - self.window_size + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+            day = (start_day - self.window_size + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, 1, device)
             h = self._encode_window(window)
             z = torch.randn(1, self.latent_size, device=device)
             cond_emb = self._cond_embed(cond, 1, device)
@@ -244,8 +244,8 @@ class ARVAE(BaseModel):
         for i in range(n):
             if i > 0 and i % log_every == 0:
                 print(f"  [ar_vae] sampling step {i}/{n}...", flush=True)
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, 1, device)
+            day = (start_day + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, 1, device)
             h = self._encode_window(window)
             z = torch.randn(1, self.latent_size, device=device)
             cond_emb = self._cond_embed(cond, 1, device)
@@ -263,7 +263,7 @@ class ARVAE(BaseModel):
         seed_window: Tensor,
         n_days: int,
         n_scenarios: int = 10,
-        start_doy: int = 1,
+        start_day: int = 1,
     ) -> Tensor:
         """
         Gera múltiplos cenários via rollout autorregressivo.
@@ -275,7 +275,7 @@ class ARVAE(BaseModel):
             seed_window: (W, S) tensor — janela histórica inicial (normalizada)
             n_days:      número de dias a gerar
             n_scenarios: número de cenários paralelos
-            start_doy:   dia do ano (1–366) do primeiro dia gerado
+            start_day:   dia do ano (1–366) do primeiro dia gerado
 
         Returns:
             Tensor (n_scenarios, n_days, n_stations)
@@ -293,8 +293,8 @@ class ARVAE(BaseModel):
 
         days = []
         for i in range(n_days):
-            doy = (start_doy + i - 1) % 365 + 1
-            cond = self._make_day_cond(doy, n_scenarios, device)
+            day = (start_day + i - 1) % 365 + 1
+            cond = self._make_day_cond(day, n_scenarios, device)
             h = self._encode_window(window)                         # (n_sc, gru_hidden)
             z = torch.randn(n_scenarios, self.latent_size, device=device)
             cond_emb = self._cond_embed(cond, n_scenarios, device)
