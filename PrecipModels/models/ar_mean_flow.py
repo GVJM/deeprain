@@ -54,13 +54,22 @@ class _MeanFlowMLP(nn.Module):
 class ARMeanFlow(BaseModel):
     def __init__(self, input_size=90, window_size=30, rnn_hidden=128,
                  hidden_size=256, n_layers=4, t_embed_dim=64,
-                 mf_ratio=0.25, jvp_eps=0.01, rnn_type='gru', **kwargs):
+                 mf_ratio=0.25, jvp_eps=0.01, rnn_type='gru',
+                 tangent_warmup_steps: int = 0,
+                 improved_interval_sampling: bool = False,
+                 mu_sad: float = 0.0,
+                 sigma_sad: float = 1.0,
+                 **kwargs):
         super().__init__()
         self.n_stations  = input_size
         self.window_size = window_size
         self.rnn_type    = rnn_type
         self.mf_ratio    = mf_ratio
         self.jvp_eps     = jvp_eps
+        self.tangent_warmup_steps       = tangent_warmup_steps
+        self.improved_interval_sampling = improved_interval_sampling
+        self.mu_sad                     = mu_sad
+        self.sigma_sad                  = sigma_sad
         self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
@@ -85,7 +94,7 @@ class ARMeanFlow(BaseModel):
             'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
         }
 
-    def loss(self, x, beta=1.0, effective_mf_ratio=None):
+    def loss(self, x, beta=1.0, effective_mf_ratio=None, training_step: int = 0):
         mf_r = effective_mf_ratio if effective_mf_ratio is not None else self.mf_ratio
         if len(x) == 3:
             window, target, cond = x
@@ -118,7 +127,12 @@ class ARMeanFlow(BaseModel):
         loss_mf = torch.tensor(0.0, device=device)
         if mf_idx.numel() > 0:
             t_mf      = t[mf_idx]
-            r_mf      = torch.rand(mf_idx.numel(), device=device) * t_mf
+            if self.improved_interval_sampling:
+                tau  = torch.randn(mf_idx.numel(), device=device)
+                d    = torch.sigmoid(tau * self.sigma_sad + self.mu_sad)
+                r_mf = (t_mf - d).clamp(min=0.0)
+            else:
+                r_mf = torch.rand(mf_idx.numel(), device=device) * t_mf
             r_mf_emb  = self.t_embed(r_mf)
             t_mf_emb  = t_emb[mf_idx]
             z_t_mf    = z_t[mf_idx]
@@ -139,8 +153,9 @@ class ARMeanFlow(BaseModel):
             du_dt = (u_t_plus - u_val.detach()) / self.jvp_eps
 
             correction = (jvp_z + du_dt).detach()
-            correction = correction / correction.norm(dim=-1, keepdim=True).clamp(min=1.0)
-            u_target   = v_cond_mf - (t_mf - r_mf).unsqueeze(-1) * correction
+            correction = correction / (correction.norm(dim=-1, keepdim=True) + 0.1)
+            r_scale    = min(1.0, training_step / self.tangent_warmup_steps) if self.tangent_warmup_steps > 0 else 1.0
+            u_target   = v_cond_mf - r_scale * (t_mf - r_mf).unsqueeze(-1) * correction
             loss_mf    = F.mse_loss(u_val, u_target.detach())
 
         total = (1 - mf_r) * loss_fm + mf_r * loss_mf
