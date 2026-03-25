@@ -30,6 +30,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from torch.func import jvp as func_jvp
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from base_model import BaseModel
@@ -56,17 +57,30 @@ class _FlowMapMLP(nn.Module):
 class ARFlowMap(BaseModel):
     def __init__(self, input_size=90, window_size=30, rnn_hidden=128,
                  hidden_size=256, n_layers=4, t_embed_dim=64,
-                 rnn_type='gru', n_steps: int = 1, **kwargs):
+                 rnn_type='gru', n_steps: int = 1,
+                 lsd_weight: float = 0.0,
+                 ayf_weight: float = 0.0,
+                 ayf_delta_t: float = 0.05,
+                 **kwargs):
         super().__init__()
         self.n_stations  = input_size
         self.window_size = window_size
         self.rnn_type    = rnn_type
         self.n_steps     = n_steps
+        self.lsd_weight  = lsd_weight
+        self.ayf_weight  = ayf_weight
+        self.ayf_delta_t = ayf_delta_t
         self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.t_embed     = SinusoidalEmbedding(t_embed_dim)
         self.flow_map    = _FlowMapMLP(input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers)
+        object.__setattr__(self, '_teacher', None)
+
+    def set_teacher(self, teacher_model):
+        teacher_model.eval()
+        teacher_model.requires_grad_(False)
+        object.__setattr__(self, '_teacher', teacher_model)
 
     def _encode_window(self, window):
         return _extract_h(self.rnn(window), self.rnn_type)
@@ -86,7 +100,7 @@ class ARFlowMap(BaseModel):
             'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
         }
 
-    def loss(self, x, beta=1.0):
+    def loss(self, x, beta=1.0, **kwargs):
         """MSE regression: Phi_theta(z_s, s, t, h) → z_t on OT paths."""
         if len(x) == 3:
             window, target, cond = x
@@ -109,7 +123,30 @@ class ARFlowMap(BaseModel):
 
         z_t_pred = self.flow_map(z_s, s_emb, t_emb, h_cond)
         fm_loss  = F.mse_loss(z_t_pred, z_t)
-        return {'total': fm_loss, 'fm_loss': fm_loss}
+
+        lsd_loss = torch.tensor(0.0, device=device)
+        if self.lsd_weight > 0.0:
+            def phi_wrt_t(t_val):
+                t_e = self.t_embed(t_val)
+                return self.flow_map(z_s, s_emb, t_e, h_cond)
+            _, dphi_dt = func_jvp(phi_wrt_t, (t,), (torch.ones_like(t),))
+            lsd_loss = F.mse_loss(dphi_dt, (target - z_0).detach())
+
+        ayf_loss = torch.tensor(0.0, device=device)
+        if self.ayf_weight > 0.0 and self._teacher is not None:
+            with torch.no_grad():
+                h_t = self._teacher._encode_window(window)
+                cond_emb_t = self._teacher._cond_embed(cond, B, device)
+                h_cond_t = torch.cat([h_t, cond_emb_t], dim=-1)
+                v_teacher = self._teacher.velocity(z_t, self._teacher.t_embed(t), h_cond_t)
+                dt = self.ayf_delta_t
+                t_back = (t - dt).clamp(min=0.0)
+                z_t_back = self.flow_map(z_s, s_emb, self.t_embed(t_back), h_cond).detach()
+                v_student = (z_t - z_t_back) / dt
+            ayf_loss = F.mse_loss(v_student, v_teacher.detach())
+
+        total = fm_loss + self.lsd_weight * lsd_loss + self.ayf_weight * ayf_loss
+        return {'total': total, 'fm_loss': fm_loss, 'lsd_loss': lsd_loss, 'ayf_loss': ayf_loss}
 
     def _generate_sample(self, h_cond, n):
         """Refinement loop: n_steps passes that always feed in-distribution OT-path inputs.
