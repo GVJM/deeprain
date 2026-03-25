@@ -141,8 +141,9 @@ class ARFlowMap(BaseModel):
                 v_teacher = self._teacher.velocity(z_t, self._teacher.t_embed(t), h_cond_t)
                 dt = self.ayf_delta_t
                 t_back = (t - dt).clamp(min=0.0)
-                z_t_back = self.flow_map(z_s, s_emb, self.t_embed(t_back), h_cond).detach()
-                v_student = (z_t - z_t_back) / dt
+            # Student's backward prediction outside no_grad to allow gradient flow
+            z_t_back = self.flow_map(z_s, s_emb, self.t_embed(t_back), h_cond)
+            v_student = (z_t.detach() - z_t_back) / dt
             ayf_loss = F.mse_loss(v_student, v_teacher.detach())
 
         total = fm_loss + self.lsd_weight * lsd_loss + self.ayf_weight * ayf_loss
