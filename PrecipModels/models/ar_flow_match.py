@@ -133,7 +133,7 @@ class ARFlowMatch(BaseModel):
 
         # ── Embedding de tempo + velocity MLP condicional ─────────────────────
         self.t_embed  = SinusoidalEmbedding(t_embed_dim)
-        self.velocity = _CondVelocityMLP(
+        self.vel_net = _CondVelocityMLP(
             data_dim=input_size,
             t_embed_dim=t_embed_dim,
             gru_hidden=gru_hidden,
@@ -141,6 +141,30 @@ class ARFlowMatch(BaseModel):
             hidden=hidden_size,
             n_layers=n_layers,
         )
+        # Backward-compat: remap old checkpoints saved with key prefix "velocity."
+        self._register_load_state_dict_pre_hook(self._remap_old_velocity_keys)
+
+    # ── Backward-compat key remap ────────────────────────────────────────────
+
+    @staticmethod
+    def _remap_old_velocity_keys(state_dict, prefix, *args, **kwargs):
+        """Remap old checkpoint keys 'velocity.*' → 'vel_net.*'."""
+        for k in list(state_dict.keys()):
+            if k.startswith(prefix + 'velocity.'):
+                state_dict[k.replace(prefix + 'velocity.', prefix + 'vel_net.')] = state_dict.pop(k)
+
+    # ── Public velocity interface ────────────────────────────────────────────
+
+    def velocity(self, z_t: Tensor, t_emb: Tensor, h_cond: Tensor) -> Tensor:
+        """
+        Compute instantaneous velocity at (z_t, t_emb) given context h_cond.
+
+        z_t:    (B, S)
+        t_emb:  (B, T)
+        h_cond: (B, gru_hidden + cond_dim)
+        → velocity: (B, S)
+        """
+        return self.vel_net(z_t, t_emb, h_cond)
 
     # ── Componentes internos ─────────────────────────────────────────────────
 
@@ -182,7 +206,7 @@ class ARFlowMatch(BaseModel):
             t_val = i * dt
             t_tensor = torch.full((n,), t_val, device=device)
             t_emb = self.t_embed(t_tensor)
-            v = self.velocity(z, t_emb, torch.cat([h, cond_emb], dim=-1))
+            v = self.vel_net(z, t_emb, torch.cat([h, cond_emb], dim=-1))
             z = z + v * dt
 
         return z.clamp(min=0.0)  # precipitação não-negativa
@@ -223,7 +247,7 @@ class ARFlowMatch(BaseModel):
         target_v = z_1 - z_0   # velocidade constante (alvo)
 
         t_emb  = self.t_embed(t)
-        v_pred = self.velocity(z_t, t_emb, h_cond)
+        v_pred = self.vel_net(z_t, t_emb, h_cond)
 
         fm_loss = F.mse_loss(v_pred, target_v)
         return {'total': fm_loss, 'fm_loss': fm_loss}

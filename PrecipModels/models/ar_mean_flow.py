@@ -74,7 +74,32 @@ class ARMeanFlow(BaseModel):
         self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.t_embed     = SinusoidalEmbedding(t_embed_dim)
-        self.velocity    = _MeanFlowMLP(input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers)
+        self.vel_net     = _MeanFlowMLP(input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers)
+        # Backward-compat: remap old checkpoints saved with key prefix "velocity."
+        self._register_load_state_dict_pre_hook(self._remap_old_velocity_keys)
+
+    # ── Backward-compat key remap ────────────────────────────────────────────
+
+    @staticmethod
+    def _remap_old_velocity_keys(state_dict, prefix, *args, **kwargs):
+        """Remap old checkpoint keys 'velocity.*' → 'vel_net.*'."""
+        for k in list(state_dict.keys()):
+            if k.startswith(prefix + 'velocity.'):
+                state_dict[k.replace(prefix + 'velocity.', prefix + 'vel_net.')] = state_dict.pop(k)
+
+    # ── Public velocity interface ────────────────────────────────────────────
+
+    def velocity(self, z_t: Tensor, t_emb: Tensor, h_cond: Tensor) -> Tensor:
+        """
+        Compute instantaneous velocity at (z_t, t_emb) given context h_cond.
+        Uses r_emb = t_emb (FM-mode evaluation: r = t).
+
+        z_t:    (B, S)
+        t_emb:  (B, T)
+        h_cond: (B, rnn_hidden + cond_dim)
+        → velocity: (B, S)
+        """
+        return self.vel_net(z_t, t_emb, t_emb, h_cond)
 
     def _encode_window(self, window):
         return _extract_h(self.rnn(window), self.rnn_type)
@@ -120,7 +145,7 @@ class ARMeanFlow(BaseModel):
         # ── FM batches (r = t): standard flow matching ────────────────────────
         loss_fm = torch.tensor(0.0, device=device)
         if fm_idx.numel() > 0:
-            u = self.velocity(z_t[fm_idx], t_emb[fm_idx], t_emb[fm_idx], h_cond[fm_idx])
+            u = self.vel_net(z_t[fm_idx], t_emb[fm_idx], t_emb[fm_idx], h_cond[fm_idx])
             loss_fm = F.mse_loss(u, v_cond[fm_idx])
 
         # ── MeanFlow batches (r < t): MeanFlow Identity ───────────────────────
@@ -141,7 +166,7 @@ class ARMeanFlow(BaseModel):
 
             # JVP: directional derivative of u w.r.t. z_t in direction v_cond
             def u_fn(z):
-                return self.velocity(z, r_mf_emb, t_mf_emb, h_mf)
+                return self.vel_net(z, r_mf_emb, t_mf_emb, h_mf)
 
             u_val, jvp_z = func_jvp(u_fn, (z_t_mf,), (v_cond_mf.detach(),))
 
@@ -149,7 +174,7 @@ class ARMeanFlow(BaseModel):
             t_plus     = (t_mf + self.jvp_eps).clamp(max=1.0)
             t_plus_emb = self.t_embed(t_plus)
             with torch.no_grad():
-                u_t_plus = self.velocity(z_t_mf, r_mf_emb, t_plus_emb, h_mf)
+                u_t_plus = self.vel_net(z_t_mf, r_mf_emb, t_plus_emb, h_mf)
             du_dt = (u_t_plus - u_val.detach()) / self.jvp_eps
 
             correction = (jvp_z + du_dt).detach()
@@ -167,7 +192,7 @@ class ARMeanFlow(BaseModel):
         z_1   = torch.randn(n, self.n_stations, device=device)
         r_emb = self.t_embed(torch.zeros(n, device=device))
         t_emb = self.t_embed(torch.ones(n, device=device))
-        return (z_1 - self.velocity(z_1, r_emb, t_emb, h_cond)).clamp(min=0.0)
+        return (z_1 - self.vel_net(z_1, r_emb, t_emb, h_cond)).clamp(min=0.0)
 
     @torch.no_grad()
     def sample(self, n, steps=None, method=None, start_day: int = 1):
