@@ -134,6 +134,15 @@ ARCH_DEFAULTS = {
     "ar_flow_map_ms":    {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
                           "n_steps": 10},
+    "ar_flow_map_sd":    {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
+                          "n_steps": 1, "lsd_weight": 0.1},
+    "ar_mean_flow_ayfm": {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
+                          "mf_ratio": 0.25, "jvp_eps": 0.01,
+                          "tangent_warmup_steps": 5000,
+                          "improved_interval_sampling": True,
+                          "mu_sad": 0.0, "sigma_sad": 1.0},
 }
 
 
@@ -146,6 +155,8 @@ _TEMPORAL_MODELS = {
     "ar_glow", "ar_glow_lstm",
     "ar_mean_flow", "ar_mean_flow_lstm", "ar_mean_flow_v2",
     "ar_flow_map", "ar_flow_map_lstm", "ar_flow_map_ms",
+    "ar_flow_map_sd",
+    "ar_mean_flow_ayfm",
 }
 
 
@@ -389,6 +400,7 @@ def train_neural_model_temporal(
     stopper = EarlyStopper(early_stop_patience)
 
     interrupted = False
+    global_step = 0
     try:
         for epoch in range(max_epochs):
             model.train()
@@ -411,12 +423,13 @@ def train_neural_model_temporal(
                     # MeanFlow correction warmup: only applies to models with mf_ratio attribute
                     if eff_mf is not None:
                         loss_dict = model.loss((window_batch, target_batch, cond_batch),
-                                               beta=beta, effective_mf_ratio=eff_mf)
+                                               beta=beta, effective_mf_ratio=eff_mf, training_step=global_step)
                     else:
-                        loss_dict = model.loss((window_batch, target_batch, cond_batch), beta=beta)
+                        loss_dict = model.loss((window_batch, target_batch, cond_batch), beta=beta, training_step=global_step)
                 loss_dict['total'].backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
+                global_step += 1
 
                 bsz = target_batch.shape[0]
                 for k, v in loss_dict.items():
@@ -831,6 +844,13 @@ def train_model(args):
         "mf_ratio":       _arch("mf_ratio"),
         "jvp_eps":        _arch("jvp_eps"),
         "occ_weight":     _arch("occ_weight"),
+        "lsd_weight":              _arch("lsd_weight"),
+        "ayf_weight":              _arch("ayf_weight"),
+        "ayf_delta_t":             _arch("ayf_delta_t"),
+        "tangent_warmup_steps":    _arch("tangent_warmup_steps"),
+        "improved_interval_sampling": _arch("improved_interval_sampling"),
+        "mu_sad":                  _arch("mu_sad"),
+        "sigma_sad":               _arch("sigma_sad"),
     }
     # Parâmetros específicos do LDM (estágio 2: DDPM)
     if model_name == "ldm":
@@ -897,6 +917,13 @@ def train_model(args):
         ("mf_ratio",       _arch("mf_ratio")),
         ("jvp_eps",        _arch("jvp_eps")),    # new
         ("occ_weight",     _arch("occ_weight")), # new
+        ("lsd_weight",             _arch("lsd_weight")),
+        ("ayf_weight",             _arch("ayf_weight")),
+        ("ayf_delta_t",            _arch("ayf_delta_t")),
+        ("tangent_warmup_steps",   _arch("tangent_warmup_steps")),
+        ("improved_interval_sampling", _arch("improved_interval_sampling")),
+        ("mu_sad",                 _arch("mu_sad")),
+        ("sigma_sad",              _arch("sigma_sad")),
     ]:
         if val is not None:
             extra_model_kwargs[key] = val
@@ -917,6 +944,25 @@ def train_model(args):
     # ── Instancia modelo ──
     model = instantiate_model(model_name, input_size, latent_size, device, extra_model_kwargs)
     print(f"[{variant_name}] Parâmetros: {model.count_parameters():,}")
+
+    # Teacher loading for AYF-EMD distillation
+    if getattr(args, 'teacher_checkpoint', None):
+        from ar.loader import load_ar_model as _load_ar_model
+        _teacher_variant = os.path.basename(args.teacher_checkpoint.rstrip('/\\'))
+        _teacher_dir = os.path.dirname(args.teacher_checkpoint.rstrip('/\\'))
+        print(f"Loading teacher from {args.teacher_checkpoint}...")
+        _teacher = _load_ar_model(
+            variant=_teacher_variant,
+            output_dir=_teacher_dir,
+            input_size=input_size,
+            device=device,
+        )
+        _teacher.to(device)
+        if hasattr(model, 'set_teacher'):
+            model.set_teacher(_teacher)
+            print(f"Teacher attached: {_teacher_variant}")
+        else:
+            print(f"WARNING: model has no set_teacher() method; --teacher_checkpoint ignored")
 
     # ── Retoma o treinamento se a flag --resume for usada ──
     model_path = os.path.join(out_dir, "model.pt")
@@ -1355,6 +1401,22 @@ def main():
                         help="Finite-difference epsilon for du/dt in MeanFlow (ar_mean_flow family)")
     parser.add_argument("--occ_weight", type=float, default=None,
                         help="Weight of occurrence BCE loss (ar_vae_v2)")
+    parser.add_argument("--lsd_weight", type=float, default=None,
+                        help="LSD loss weight for ar_flow_map_sd (0.0=disabled)")
+    parser.add_argument("--ayf_weight", type=float, default=None,
+                        help="AYF-EMD distillation weight (0.0=disabled)")
+    parser.add_argument("--ayf_delta_t", type=float, default=None,
+                        help="Backstep size for AYF-EMD teacher distillation")
+    parser.add_argument("--tangent_warmup_steps", type=int, default=None,
+                        help="Steps to ramp tangent correction 0->1 (ar_mean_flow_ayfm)")
+    parser.add_argument("--improved_interval_sampling", action="store_true", default=None,
+                        help="Use N(mu,sigma)+sigmoid interval sampling (ar_mean_flow_ayfm)")
+    parser.add_argument("--mu_sad", type=float, default=None,
+                        help="Mean of normal dist for improved interval sampling")
+    parser.add_argument("--sigma_sad", type=float, default=None,
+                        help="Std of normal dist for improved interval sampling")
+    parser.add_argument("--teacher_checkpoint", type=str, default=None,
+                        help="Path to teacher model outputs dir for AYF-EMD distillation")
     parser.add_argument("--skip_eval", action="store_true",
                         help="Skip post-training evaluation; do not write metrics.json. "
                              "Used by distributed worker — eval runs as a separate job.")
