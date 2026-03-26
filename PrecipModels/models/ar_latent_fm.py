@@ -230,7 +230,7 @@ class ARLatentFM(BaseModel):
 
     # ── BaseModel interface ──────────────────────────────────────────────────
 
-    def loss(self, x, beta: float = 1.0) -> dict:
+    def loss(self, x, beta: float = 1.0, **kwargs) -> dict:
         """
         Joint VAE + latent flow matching loss.
 

@@ -136,7 +136,7 @@ class ARRealNVP(BaseModel):
         log_pz = -0.5 * (z ** 2 + np.log(2 * np.pi)).sum(dim=-1)
         return log_pz + log_det
 
-    def loss(self, x, beta: float = 1.0) -> dict:
+    def loss(self, x, beta: float = 1.0, **kwargs) -> dict:
         if len(x) == 3:
             window, target, cond = x
         else:

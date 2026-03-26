@@ -213,7 +213,7 @@ class ARFlowMatch(BaseModel):
 
     # ── Interface BaseModel ──────────────────────────────────────────────────
 
-    def loss(self, x, beta: float = 1.0) -> dict:
+    def loss(self, x, beta: float = 1.0, **kwargs) -> dict:
         """
         Conditional OT Flow Matching loss.
 

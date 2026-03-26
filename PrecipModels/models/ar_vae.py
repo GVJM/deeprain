@@ -174,7 +174,7 @@ class ARVAE(BaseModel):
 
     # ── Interface BaseModel ──────────────────────────────────────────────────
 
-    def loss(self, x, beta: float = 1.0) -> dict:
+    def loss(self, x, beta: float = 1.0, **kwargs) -> dict:
         """
         Calcula VAE loss condicional: MSE(y_t, y_hat) + beta * KL(q||N(0,I)) [+ occ_weight * BCE]
 

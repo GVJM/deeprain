@@ -163,7 +163,7 @@ class ARGlow(BaseModel):
         z, ld = self._fwd(x, h_cond)
         return -0.5 * (z**2 + np.log(2 * np.pi)).sum(-1) + ld
 
-    def loss(self, x, beta=1.0):
+    def loss(self, x, beta=1.0, **kwargs):
         if len(x) == 3:
             window, target, cond = x
         else:
