@@ -141,7 +141,7 @@ def load_ar_model(variant: str, output_dir: str, input_size: int, device: torch.
     for key in (
         "latent_size", "hidden_size", "n_layers", "n_coupling",
         "gru_hidden", "window_size", "t_embed_dim", "n_sample_steps",
-        "rnn_hidden", "n_steps",
+        "rnn_hidden", "n_steps", "tangent_warmup_steps",
     ):
         val = cfg.get(key)
         if val is not None:
@@ -153,10 +153,18 @@ def load_ar_model(variant: str, output_dir: str, input_size: int, device: torch.
         model_kwargs["rnn_type"] = rnn_type
 
     # Float params that condition model architecture
-    for key in ("occ_weight", "jvp_eps", "mf_ratio"):
+    for key in ("occ_weight", "jvp_eps", "mf_ratio",
+                "lsd_weight", "ayf_weight", "ayf_delta_t",
+                "mu_sad", "sigma_sad"):
         val = cfg.get(key)
         if val is not None:
             model_kwargs[key] = float(val)
+
+    # Bool params
+    for key in ("improved_interval_sampling",):
+        val = cfg.get(key)
+        if val is not None:
+            model_kwargs[key] = bool(val)
 
     model = get_model(model_class, **model_kwargs)
     model.load_state_dict(state)

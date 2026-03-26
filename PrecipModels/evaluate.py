@@ -33,7 +33,9 @@ from data_utils import (
 )
 
 # Float params: must be cast to float(), not int(), when loading from config.json
-_FLOAT_PARAMS = ("occ_weight", "jvp_eps", "mf_ratio")
+_FLOAT_PARAMS = ("occ_weight", "jvp_eps", "mf_ratio",
+                 "lsd_weight", "ayf_weight", "ayf_delta_t",
+                 "mu_sad", "sigma_sad")
 
 # Int architectural params
 _INT_PARAMS = (
@@ -41,7 +43,11 @@ _INT_PARAMS = (
     "gru_hidden", "window_size", "t_embed_dim", "n_sample_steps",
     "rnn_hidden", "n_steps", "latent_occ", "latent_amt",
     "hidden_occ", "hidden_amt", "context_dim", "hidden_dim",
+    "tangent_warmup_steps",
 )
+
+# Bool params
+_BOOL_PARAMS = ("improved_interval_sampling",)
 
 
 def evaluate_from_dir(model_dir: Path, n_samples_override: int = None) -> dict:
@@ -87,6 +93,10 @@ def evaluate_from_dir(model_dir: Path, n_samples_override: int = None) -> dict:
         val = cfg.get(key)
         if val is not None:
             model_kwargs[key] = float(val)   # MUST be float, not int
+    for key in _BOOL_PARAMS:
+        val = cfg.get(key)
+        if val is not None:
+            model_kwargs[key] = bool(val)
 
     model = get_model(model_name, **model_kwargs)
     ckpt_path = model_dir / "model.pt"
