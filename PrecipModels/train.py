@@ -1410,7 +1410,11 @@ def main():
     parser.add_argument("--tangent_warmup_steps", type=int, default=None,
                         help="Steps to ramp tangent correction 0->1 (ar_mean_flow_ayfm)")
     parser.add_argument("--improved_interval_sampling", action="store_true", default=None,
-                        help="Use N(mu,sigma)+sigmoid interval sampling (ar_mean_flow_ayfm)")
+                        help="Use N(mu,sigma)+sigmoid interval sampling (ar_mean_flow_ayfm)"
+                        # NOTE: default=None (not False) is intentional — allows _arch() to fall
+                        # through to ARCH_DEFAULTS, so ar_mean_flow_ayfm gets True by default.
+                        # Changing to default=False would break the ARCH_DEFAULTS override.
+                        )
     parser.add_argument("--mu_sad", type=float, default=None,
                         help="Mean of normal dist for improved interval sampling")
     parser.add_argument("--sigma_sad", type=float, default=None,
