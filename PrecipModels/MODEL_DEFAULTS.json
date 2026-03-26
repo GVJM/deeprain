@@ -306,5 +306,24 @@
         "lr": 0.0003,
         "batch_size": 128,
         "kl_warmup": 0,
-        "latent_size": 0}
+        "latent_size": 0},
+    "ar_flow_map_sd": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+        "lsd_weight": 0.1},
+    "ar_mean_flow_ayfm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+        "tangent_warmup_steps": 5000,
+        "improved_interval_sampling": true,
+        "mu_sad": 0.0,
+        "sigma_sad": 1.0}
 }
