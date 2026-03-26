@@ -1,0 +1,33 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/merge",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "lr": 0.001
+  },
+  "entries": [
+    {"variant_name": "ar_glow_h32",      "model": "ar_glow", "hidden_size": 32},
+    {"variant_name": "ar_glow_h32_l2",   "model": "ar_glow", "hidden_size": 32, "n_layers": 2},
+    {"variant_name": "ar_glow_h32_l4",   "model": "ar_glow", "hidden_size": 32, "n_layers": 4},
+    {"variant_name": "ar_glow_h64",      "model": "ar_glow", "hidden_size": 64},
+    {"variant_name": "ar_glow_h64_l2",   "model": "ar_glow", "hidden_size": 64, "n_layers": 2},
+    {"variant_name": "ar_glow_h64_l4",   "model": "ar_glow", "hidden_size": 64, "n_layers": 4},
+    {"variant_name": "ar_glow_h64_l6",   "model": "ar_glow", "hidden_size": 64, "n_layers": 6},
+    {"variant_name": "ar_glow_h128",     "model": "ar_glow", "hidden_size": 128, "lr": null},
+    {"variant_name": "ar_glow_h128_l2",  "model": "ar_glow", "hidden_size": 128, "n_layers": 2, "lr": null},
+    {"variant_name": "ar_glow_h128_l4",  "model": "ar_glow", "hidden_size": 128, "n_layers": 4, "lr": null},
+    {"variant_name": "ar_glow_h128_l6",  "model": "ar_glow", "hidden_size": 128, "n_layers": 6, "lr": null},
+    {"variant_name": "ar_glow_h64_rnn64",  "model": "ar_glow", "hidden_size": 64, "rnn_hidden": 64,  "n_steps": 8, "lr": null},
+    {"variant_name": "ar_glow_h64_rnn256", "model": "ar_glow", "hidden_size": 64, "rnn_hidden": 256, "n_steps": 8, "lr": null},
+    {"variant_name": "ar_glow_h64_s4",    "model": "ar_glow", "hidden_size": 64, "rnn_hidden": 128, "n_steps": 4, "lr": null},
+    {"variant_name": "ar_glow_h64_s16",   "model": "ar_glow", "hidden_size": 64, "rnn_hidden": 128, "n_steps": 16, "lr": null},
+    {"variant_name": "ar_glow_lstm_h64",  "model": "ar_glow_lstm", "hidden_size": 64, "rnn_hidden": 128, "n_steps": 8, "lr": null},
+    {"variant_name": "ar_glow_h64_w30",   "model": "ar_glow", "hidden_size": 64, "rnn_hidden": 128, "n_steps": 8, "window_size": 30, "lr": null}
+  ]
+}

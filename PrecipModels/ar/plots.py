@@ -1140,18 +1140,24 @@ def plot_family_detail_dirs(
     families: dict,
     out_dir: str,
     sc_start_month: int = 0,
+    top_n: int = None,
+    max_per_chart: int = 0,
 ):
     """
     Generate per-family detail subdirs: comparison_ar/families/<family>/.
 
-    Each subdir contains the full Tier 2 plot suite for ALL variants of that
-    family — unfiltered, regardless of --top_n_per_family. Enables drill-down
-    without polluting top-level charts.
+    Each subdir contains the full Tier 2 plot suite for variants of that family.
+
+    Args:
+        top_n: if set, only show top-N variants per family ranked by combined score.
+        max_per_chart: if >0, split variants into groups of this size. Each group
+            gets its own part_01/, part_02/, ... subdir within the family dir.
+            When only one group, no subdirs are created (identical to original behavior).
     """
     from collections import defaultdict
     import time as _time
     by_family: dict = defaultdict(dict)
-    
+
     for v, sc in scenarios_by_model.items():
         by_family[families.get(v, v)][v] = sc
 
@@ -1160,19 +1166,29 @@ def plot_family_detail_dirs(
             continue
         fam_dir = os.path.join(out_dir, "families", fam)
         os.makedirs(fam_dir, exist_ok=True)
-        print(f"\n  [family] {fam} ({len(fam_scenarios)} variants) → {fam_dir}")
 
-        # Composite bar ranked by combined score (family only)
+        # Composite bar ranked by combined score (family only) — always uses all variants
         fam_metrics = {v: all_metrics[v] for v in fam_scenarios if v in all_metrics}
+        fam_combined = {}
         if fam_metrics:
             fam_t2 = {v: tier2_metrics.get(v, {}) for v in fam_scenarios}
             fam_combined, _ = compute_combined_score(fam_metrics, fam_t2)
             fam_families_map = {v: fam for v in fam_scenarios}
             plot_composite_bar(fam_combined, fam_families_map, fam_dir)
 
-        # Full Tier 2 plot suite for this family
-        # Map each variant to itself so _family_colors generates distinct colors per variant
-        fam_fam_map = {v: v for v in fam_scenarios}
+        # Sort by score, optionally limit to top-N
+        sorted_variants = sorted(fam_scenarios.keys(), key=lambda v: fam_combined.get(v, 1.0))
+        if top_n is not None:
+            sorted_variants = sorted_variants[:top_n]
+
+        print(f"\n  [family] {fam} ({len(sorted_variants)}/{len(fam_scenarios)} variants) → {fam_dir}")
+
+        # Split into chunks if max_per_chart is set
+        if max_per_chart > 0 and len(sorted_variants) > max_per_chart:
+            chunks = [sorted_variants[i:i + max_per_chart]
+                      for i in range(0, len(sorted_variants), max_per_chart)]
+        else:
+            chunks = [sorted_variants]
 
         def _tplot(label, fn):
             t = _time.perf_counter()
@@ -1180,11 +1196,18 @@ def plot_family_detail_dirs(
             print(f"    [{label}] {_time.perf_counter()-t:.2f}s", flush=True)
 
         _t_fam = _time.perf_counter()
-        _tplot("autocorr",    lambda: plot_autocorr_multilag(fam_scenarios, data_raw, fam_dir, families=fam_fam_map))
-        _tplot("spell",       lambda: plot_spell_length_comparison(fam_scenarios, data_raw, fam_dir, families=fam_fam_map))
-        _tplot("monthly",     lambda: plot_monthly_precip(fam_scenarios, data_raw, obs_months, fam_dir, families=fam_fam_map, start_month=sc_start_month))
-        _tplot("return_per",  lambda: plot_return_period(fam_scenarios, data_raw, fam_dir, families=fam_fam_map))
-        _tplot("rxnday",      lambda: plot_rxnday_multi(fam_scenarios, data_raw, fam_dir, families=fam_fam_map))
-        _tplot("seasonal",    lambda: plot_seasonal_accumulation(fam_scenarios, data_raw, obs_months, fam_dir, families=fam_fam_map))
-        _tplot("exceedance",  lambda: plot_exceedance_frequency(fam_scenarios, data_raw, fam_dir, families=fam_fam_map))
+        for ci, chunk in enumerate(chunks):
+            chunk_dir = os.path.join(fam_dir, f"part_{ci+1:02d}") if len(chunks) > 1 else fam_dir
+            if len(chunks) > 1:
+                os.makedirs(chunk_dir, exist_ok=True)
+                print(f"    [part {ci+1}/{len(chunks)}] {len(chunk)} variants → {chunk_dir}")
+            chunk_sc = {v: fam_scenarios[v] for v in chunk}
+            fam_fam_map = {v: v for v in chunk_sc}
+            _tplot("autocorr",   lambda d=chunk_dir, s=chunk_sc, m=fam_fam_map: plot_autocorr_multilag(s, data_raw, d, families=m))
+            _tplot("spell",      lambda d=chunk_dir, s=chunk_sc, m=fam_fam_map: plot_spell_length_comparison(s, data_raw, d, families=m))
+            _tplot("monthly",    lambda d=chunk_dir, s=chunk_sc, m=fam_fam_map: plot_monthly_precip(s, data_raw, obs_months, d, families=m, start_month=sc_start_month))
+            _tplot("return_per", lambda d=chunk_dir, s=chunk_sc, m=fam_fam_map: plot_return_period(s, data_raw, d, families=m))
+            _tplot("rxnday",     lambda d=chunk_dir, s=chunk_sc, m=fam_fam_map: plot_rxnday_multi(s, data_raw, d, families=m))
+            _tplot("seasonal",   lambda d=chunk_dir, s=chunk_sc, m=fam_fam_map: plot_seasonal_accumulation(s, data_raw, obs_months, d, families=m))
+            _tplot("exceedance", lambda d=chunk_dir, s=chunk_sc, m=fam_fam_map: plot_exceedance_frequency(s, data_raw, d, families=m))
         print(f"  [family_plots_total] {_time.perf_counter()-_t_fam:.2f}s", flush=True)

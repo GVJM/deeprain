@@ -43,9 +43,12 @@ python ablation_hurdle_vae_cond.py --skip_training            # re-plot saved re
 python ablation_hurdle_vae_cond.py --max_epochs 500 --n_samples 2000  # full ablation
 
 # Batch training queue
-python batch_train.py                          # run all pending jobs in TRAINING_QUEUE.json
-python batch_train.py --queue QUEUE_foo.json   # use alternate queue file
-python batch_train.py --only ar_vae --status   # status / single variant
+python batch_train.py                              # run all pending jobs in TRAINING_QUEUE.json
+python batch_train.py --queue_dir queues/          # merge all QUEUE*.json files in queues/ folder
+python batch_train.py --queue queues/QUEUE_foo.json # single alternate file
+python batch_train.py --queue_dir queues/ --status  # status table across all queues
+python batch_train.py --only ar_vae --status       # filter to specific variant
+# Queue log written to PrecipModels/batch_log.jsonl
 
 # Queue generator — auto-sizes architecture for a new dataset
 python make_queue.py --data_path ../dados_sabesp/data_precip.dat \
@@ -60,6 +63,47 @@ python generate_scenarios.py --model ar_vae --n_scenarios 50 --n_days 365
 ```
 
 Outputs go to `outputs/<name>/`: `model.pt` (or `copula.pkl`), `config.json`, `metrics.json`.
+
+## Results & Queue Organization
+
+```
+PrecipModels/
+├── queues/                          # all QUEUE*.json files (use --queue_dir queues/)
+│   ├── QUEUE_dp_v3_glow.json        # naming: QUEUE_<dataset>_<version>_<family>.json
+│   ├── QUEUE_dp_v6_latentfm.json    # dp = data_precip, dp24 = 24-station variant
+│   └── LEGACY_*.json                # old flat-array format — excluded from --queue_dir
+├── batch_log.jsonl                  # central log for all batch runs (grep by variant field)
+└── results/
+    ├── data_precip/                 # 17-station SABESP dataset (data_precip.dat)
+    │   ├── merge/                   # all trained batches merged for cross-batch comparison
+    │   │   └── comparison_ar/       # compare_ar.py outputs (reports, CSVs, charts)
+    │   ├── outputs_v6_glow/         # per-batch output dirs (new runs go here)
+    │   └── outputs_v6_latentfm/
+    └── dayprecip/                   # 91-station SABESP dataset (dayprecip.dat)
+        ├── outputs_sabesp/
+        └── outputs_v5_res/
+```
+
+**Queue file format** — new `defaults` + `entries` format (old plain array still works):
+```json
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_glow",
+    "holdout_ratio": 0.15, "val_ratio": 0.1, "val_freq": 5,
+    "early_stop_patience": 50, "max_epochs": 2000
+  },
+  "entries": [
+    {"variant_name": "ar_glow_h64_w30", "model": "ar_glow", "hidden_size": 64, "window_size": 30}
+  ]
+}
+```
+Entry-level fields override defaults. `output_dir` is required (no silent fallback).
+
+**Datasets:**
+- `data_precip.dat` — 17 SABESP stations (most AR experiments use this)
+- `dayprecip.dat` — 91 SABESP stations (older experiments)
+- **Mismatch gotcha:** running `compare_ar.py` against models trained on one dataset with the other's `--data_path` causes a shape crash in `transition_probability_error` (e.g., `(91,) vs (17,)`).
 
 ## Models
 
@@ -136,7 +180,7 @@ dados_barragens_btg/    # BTG dam data
 
 - **AR evaluation bottleneck:** `evaluate_model()` calls `sample(n)` 6× total; for AR models this is O(n) sequential steps. Mitigated in `train.py` (200 samples, 1 timing trial for `_TEMPORAL_MODELS`). Change caps in the `is_temporal` block ~line 1192.
 - **AR `sample()` progress:** All AR models log progress every 25% of steps (`flush=True`). Do not add duplicate logging.
-- **Batch log:** `outputs/batch_log.jsonl` — one JSON record per job, appended atomically. Survives crashes; grep by `variant` field.
+- **Batch log:** `PrecipModels/batch_log.jsonl` — one JSON record per job, appended atomically. Survives crashes; grep by `variant` field.
 - **KL collapse (VAE):** increase `--kl_warmup` (try 100+)
 - **RealNVP NLL explosion:** use `--lr 0.0001`
 - **Flow Matching negative samples:** clip to 0 post-generation
@@ -145,7 +189,7 @@ dados_barragens_btg/    # BTG dam data
 - `KMP_DUPLICATE_LIB_OK=TRUE` is set automatically in train.py (Intel MKL conflict)
 - **AR models require SABESP path:** default data path is INMET; always pass `--data_path ../dados_sabesp/dayprecip.dat` for AR/temporal models
 - **ARGlow inverse cache:** `_InvLinearLU.inverse()` caches `W⁻¹`; cleared on `train()`. Without it, evaluation does 8000 matrix inversions instead of 8
-- **`compare_ar.py` output_dir:** AR checkpoints default to `./outputs`; if models were trained to `outputs_sabesp/`, pass `--output_dir ./outputs_sabesp`
+- **`compare_ar.py` output_dir:** AR checkpoints default to `./outputs`; always pass `--output_dir` matching where models actually live (e.g., `--output_dir results/data_precip/merge`). Also pass `--data_path` matching the training dataset or Tier 2 rollouts will crash with a shape mismatch.
 - **st_362 outlier station:** Wasserstein 50–100× higher than all other 91 SABESP stations across every model. Excluded from per-station win ranking but shown in heatmaps. Constant `OUTLIER_STATION` in `compare_ar.py`.
 - **`hurdle_temporal` is NOT in `_TEMPORAL_MODELS`** (`train.py` ~line 143): uses a different training path; AR evaluation caps do not apply to it.
 - **`--data_path` string-matched against `DEFAULT_DATA_PATH`:** only the exact string `"../dados/inmet_relevant_data.csv"` (or `"../dados_barragens_btg/inmet_relevant_data.csv"`) triggers the BTG/INMET loader; everything else routes to SABESP. Absolute paths work correctly since ceb793c. Relative paths still require running from `PrecipModels/`.
@@ -155,3 +199,6 @@ dados_barragens_btg/    # BTG dam data
 - **evaluate.py float params:** Same rule as compare_ar.py — `occ_weight`, `jvp_eps`, `mf_ratio` must be cast as `float()` when loading from config.json.
 - **`ar_flow_map_ms` is in `OUTLIER_MODELS`:** excluded from top-level Tier 2 scenario charts (but kept in Tier 1 tables and `families/` subdirs). Constant `OUTLIER_MODELS` in `compare_ar.py`. Add models here when pathological outputs distort shared axes.
 - **Tier 2 performance at n_scenarios > 200:** metric and plot functions are vectorized (cumsum rolling sum, diff-based RLE, searchsorted exceedance). Per-family plots log per-step timing via `_tplot` — slow `seasonal` or `rxnday` steps indicate a regression.
+- **New AR models need entries in BOTH `ARCH_DEFAULTS` (train.py) AND `MODEL_DEFAULTS.json`:** `ARCH_DEFAULTS` controls architecture hyperparameters; `MODEL_DEFAULTS.json` controls training hyperparameters (lr, batch_size, max_epochs, normalization_mode). Missing either causes `KeyError: 'model_name'` at line ~769 in train.py.
+- **`ar_flow_map_res` uses residual parameterization:** output = `z_s + (t-s) * MLP(...)` instead of `MLP(...)`. This fixes stochastic collapse (MSE → conditional mean ≈ 0 on sparse data) by forcing the output to depend on `z_s` structurally. `use_residual=True` must be in `config.json` for checkpoint loading — it's a bool param handled in `ar/loader.py` and `evaluate.py` `_BOOL_PARAMS`.
+- **`ar_ddpm` teacher model:** VP-SDE with v-prediction and continuous time. Implements `velocity()` interface for AYF distillation compatibility. Trained via `_TEMPORAL_MODELS` path. Schedule: β(t) = 0.1 + 19.9t, α̅(t) = exp(-(0.1t + 9.95t²)). Sampling: DDIM deterministic, t=1→0 in n_sample_steps steps.

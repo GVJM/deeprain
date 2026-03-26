@@ -1,0 +1,29 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/merge",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000
+  },
+  "entries": [
+    {"variant_name": "ar_flow_map_res_h128_l4",      "model": "ar_flow_map_res", "hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "use_residual": true},
+    {"variant_name": "ar_flow_map_res_h256_l4",      "model": "ar_flow_map_res", "hidden_size": 256, "rnn_hidden": 128, "n_layers": 4, "use_residual": true},
+    {"variant_name": "ar_flow_map_res_h256_l6",      "model": "ar_flow_map_res", "hidden_size": 256, "rnn_hidden": 128, "n_layers": 6, "use_residual": true},
+    {"variant_name": "ar_flow_map_res_h128_l4_lsd01","model": "ar_flow_map_res", "hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "use_residual": true, "lsd_weight": 0.1},
+    {"variant_name": "ar_flow_map_res_h256_l4_lsd01","model": "ar_flow_map_res", "hidden_size": 256, "rnn_hidden": 128, "n_layers": 4, "use_residual": true, "lsd_weight": 0.1},
+    {"variant_name": "ar_flow_map_res_ms_h128_l4",   "model": "ar_flow_map_res", "hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "use_residual": true, "n_steps": 5},
+    {"variant_name": "ar_flow_map_res_ms_h256_l4",   "model": "ar_flow_map_res", "hidden_size": 256, "rnn_hidden": 128, "n_layers": 4, "use_residual": true, "n_steps": 5},
+
+    {"variant_name": "ar_flow_match_ultra_h384_l6", "model": "ar_flow_match", "hidden_size": 384, "gru_hidden": 128, "n_layers": 6, "n_sample_steps": 200},
+    {"variant_name": "ar_flow_match_ultra_h384_l8", "model": "ar_flow_match", "hidden_size": 384, "gru_hidden": 128, "n_layers": 8, "n_sample_steps": 200},
+    {"variant_name": "ar_flow_match_ultra_h512_l4", "model": "ar_flow_match", "hidden_size": 512, "gru_hidden": 128, "n_layers": 4, "n_sample_steps": 200},
+
+    {"variant_name": "ar_ddpm_h256_l4", "model": "ar_ddpm", "hidden_size": 256, "rnn_hidden": 128, "n_layers": 4, "n_sample_steps": 50},
+    {"variant_name": "ar_ddpm_h256_l6", "model": "ar_ddpm", "hidden_size": 256, "rnn_hidden": 128, "n_layers": 6, "n_sample_steps": 100}
+  ]
+}

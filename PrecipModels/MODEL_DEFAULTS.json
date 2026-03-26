@@ -315,6 +315,28 @@
         "kl_warmup": 0,
         "latent_size": 0,
         "lsd_weight": 0.1},
+    "ar_flow_map_res": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0,
+        "use_residual": true},
+    "ar_ddpm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0},
+    "ar_ddpm_lstm": {
+        "normalization_mode": "scale_only",
+        "max_epochs": 300,
+        "lr": 0.0003,
+        "batch_size": 128,
+        "kl_warmup": 0,
+        "latent_size": 0},
     "ar_mean_flow_ayfm": {
         "normalization_mode": "scale_only",
         "max_epochs": 300,

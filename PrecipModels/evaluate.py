@@ -35,7 +35,7 @@ from data_utils import (
 # Float params: must be cast to float(), not int(), when loading from config.json
 _FLOAT_PARAMS = ("occ_weight", "jvp_eps", "mf_ratio",
                  "lsd_weight", "ayf_weight", "ayf_delta_t",
-                 "mu_sad", "sigma_sad")
+                 "mu_sad", "sigma_sad", "dropout")
 
 # Int architectural params
 _INT_PARAMS = (
@@ -47,10 +47,11 @@ _INT_PARAMS = (
 )
 
 # Bool params
-_BOOL_PARAMS = ("improved_interval_sampling",)
+_BOOL_PARAMS = ("improved_interval_sampling", "use_residual")
 
 
-def evaluate_from_dir(model_dir: Path, n_samples_override: int = None) -> dict:
+def evaluate_from_dir(model_dir: Path, n_samples_override: int = None,
+                      n_steps_override: int = None) -> dict:
     """Load a trained model from model_dir and write metrics.json."""
     model_dir = Path(model_dir)
     cfg = json.loads((model_dir / "config.json").read_text())
@@ -112,6 +113,9 @@ def evaluate_from_dir(model_dir: Path, n_samples_override: int = None) -> dict:
     model.to(device)
     model.eval()
 
+    if n_steps_override is not None and hasattr(model, 'n_steps'):
+        model.n_steps = n_steps_override
+
     # Evaluate — same caps as train.py for AR models
     n_samples = n_samples_override or cfg.get("n_samples", 5000)
     if is_temporal:
@@ -148,8 +152,10 @@ def main():
                         help="Path to trained model directory (contains config.json + model.pt)")
     parser.add_argument("--n_samples", type=int, default=None,
                         help="Override n_samples from config.json")
+    parser.add_argument("--n_steps", type=int, default=None,
+                        help="Override n_steps for ARFlowMap inference refinement loop")
     args = parser.parse_args()
-    evaluate_from_dir(Path(args.model_dir), args.n_samples)
+    evaluate_from_dir(Path(args.model_dir), args.n_samples, args.n_steps)
 
 
 if __name__ == "__main__":

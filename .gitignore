@@ -8,6 +8,7 @@ PrecipModels/outputs/
 PrecipModels/outputs_inmet_btg_barragens/
 PrecipModels/outputs_sabesp/
 PrecipModels/output*/
+*/results/*/*
 
 .worktrees/
 .claude/

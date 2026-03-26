@@ -1,0 +1,31 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/merge",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000
+  },
+  "entries": [
+    {"variant_name": "ar_latent_fm_h64_l2",     "model": "ar_latent_fm", "hidden_size": 64,  "gru_hidden": 32, "n_layers": 2},
+    {"variant_name": "ar_latent_fm_h64_l4",     "model": "ar_latent_fm", "hidden_size": 64,  "gru_hidden": 32, "n_layers": 4},
+    {"variant_name": "ar_latent_fm_h64_l6",     "model": "ar_latent_fm", "hidden_size": 64,  "gru_hidden": 32, "n_layers": 6},
+    {"variant_name": "ar_latent_fm_h64_lat16",  "model": "ar_latent_fm", "hidden_size": 64,  "gru_hidden": 32, "n_layers": 4, "latent_size": 16},
+    {"variant_name": "ar_latent_fm_h64_lat64",  "model": "ar_latent_fm", "hidden_size": 64,  "gru_hidden": 32, "n_layers": 4, "latent_size": 64},
+    {"variant_name": "ar_latent_fm_h64_lat128", "model": "ar_latent_fm", "hidden_size": 64,  "gru_hidden": 32, "n_layers": 4, "latent_size": 128},
+    {"variant_name": "ar_latent_fm_h128_l4",    "model": "ar_latent_fm", "hidden_size": 128, "gru_hidden": 64, "n_layers": 4},
+    {"variant_name": "ar_latent_fm_h128_l6",    "model": "ar_latent_fm", "hidden_size": 128, "gru_hidden": 64, "n_layers": 6},
+    {"variant_name": "ar_latent_fm_h128_lat64", "model": "ar_latent_fm", "hidden_size": 128, "gru_hidden": 64, "n_layers": 4, "latent_size": 64},
+    {"variant_name": "ar_latent_fm_h128_lat128","model": "ar_latent_fm", "hidden_size": 128, "gru_hidden": 64, "n_layers": 4, "latent_size": 128},
+
+    {"variant_name": "ar_flow_match_h32_l2", "model": "ar_flow_match", "hidden_size": 32, "gru_hidden": 16, "n_layers": 2},
+    {"variant_name": "ar_flow_match_h32_l4", "model": "ar_flow_match", "hidden_size": 32, "gru_hidden": 16, "n_layers": 4},
+    {"variant_name": "ar_flow_match_h64_l4", "model": "ar_flow_match", "hidden_size": 64, "gru_hidden": 32, "n_layers": 4},
+    {"variant_name": "ar_flow_match_h64_l6", "model": "ar_flow_match", "hidden_size": 64, "gru_hidden": 32, "n_layers": 6},
+    {"variant_name": "ar_flow_match_h64_l8", "model": "ar_flow_match", "hidden_size": 64, "gru_hidden": 32, "n_layers": 8, "lr": 0.0001}
+  ]
+}

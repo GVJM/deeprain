@@ -1,0 +1,69 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_ms",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "model": "ar_flow_map_ms",
+    "n_layers": 4
+  },
+  "entries": [
+    {
+      "_comment": "=== h256 — never tried for ar_flow_map_ms ===",
+      "variant_name": "ar_flow_map_ms_h256_l4",
+      "hidden_size": 256,
+      "rnn_hidden": 128
+    },
+    {
+      "variant_name": "ar_flow_map_ms_h256_l6",
+      "hidden_size": 256,
+      "rnn_hidden": 128,
+      "n_layers": 6
+    },
+    {
+      "_comment": "=== n_steps sweet spot (3 and 5 tested for res, never for ms) ===",
+      "variant_name": "ar_flow_map_ms_h128_l4_3steps",
+      "hidden_size": 128,
+      "rnn_hidden": 64,
+      "n_steps": 3
+    },
+    {
+      "variant_name": "ar_flow_map_ms_h128_l4_5steps",
+      "hidden_size": 128,
+      "rnn_hidden": 64,
+      "n_steps": 5
+    },
+    {
+      "_comment": "=== h256 + sweet spot steps: best capacity with few inference steps ===",
+      "variant_name": "ar_flow_map_ms_h256_l4_3steps",
+      "hidden_size": 256,
+      "rnn_hidden": 128,
+      "n_steps": 3
+    },
+    {
+      "variant_name": "ar_flow_map_ms_h256_l4_5steps",
+      "hidden_size": 256,
+      "rnn_hidden": 128,
+      "n_steps": 5
+    },
+    {
+      "_comment": "=== Window variant — w30 won for glow, never tried for ms ===",
+      "variant_name": "ar_flow_map_ms_h128_l4_w30",
+      "hidden_size": 128,
+      "rnn_hidden": 64,
+      "window_size": 30
+    },
+    {
+      "variant_name": "ar_flow_map_ms_h128_l4_3steps_w30",
+      "hidden_size": 128,
+      "rnn_hidden": 64,
+      "n_steps": 3,
+      "window_size": 30
+    }
+  ]
+}

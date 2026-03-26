@@ -1,0 +1,56 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_reg",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "model": "ar_glow",
+    "hidden_size": 64,
+    "rnn_hidden": 128,
+    "n_steps": 8,
+    "window_size": 30
+  },
+  "entries": [
+    {
+      "_comment": "=== weight_decay sweep (baseline arch: h64_w30_rnn128_s8 — rank #1 in v6_glow) ===",
+      "variant_name": "ar_glow_h64_w30_wd1e4",
+      "weight_decay": 0.0001
+    },
+    {
+      "variant_name": "ar_glow_h64_w30_wd1e3",
+      "weight_decay": 0.001
+    },
+    {
+      "_comment": "=== dropout sweep ===",
+      "variant_name": "ar_glow_h64_w30_do01",
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== combined ===",
+      "variant_name": "ar_glow_h64_w30_wd1e4_do01",
+      "weight_decay": 0.0001,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_real_nvp: same regularization sweep (also shows val divergence) ===",
+      "variant_name": "ar_rnvp_h256_w30_wd1e4",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "weight_decay": 0.0001
+    },
+    {
+      "variant_name": "ar_rnvp_h256_w30_wd1e4_do01",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "weight_decay": 0.0001,
+      "dropout": 0.1
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{"variant": "ar_glow_h64_w14", "status": "ok", "elapsed_s": 869.8, "elapsed_fmt": "14m29s", "error": null, "timestamp": "2026-03-26T18:51:35.849504"}
+{"variant": "ar_glow_h64_w60", "status": "ok", "elapsed_s": 977.6, "elapsed_fmt": "16m17s", "error": null, "timestamp": "2026-03-26T19:07:53.449028"}
+{"variant": "ar_flow_map_ms_h256_l4", "status": "ok", "elapsed_s": 392.7, "elapsed_fmt": "6m32s", "error": null, "timestamp": "2026-03-26T19:22:29.606943"}
+{"variant": "ar_flow_map_ms_h256_l6", "status": "ok", "elapsed_s": 611.5, "elapsed_fmt": "10m11s", "error": null, "timestamp": "2026-03-26T19:32:41.064586"}
+{"variant": "ar_flow_map_ms_h128_l4_3steps", "status": "ok", "elapsed_s": 551.1, "elapsed_fmt": "9m11s", "error": null, "timestamp": "2026-03-26T19:41:52.134116"}
+{"variant": "ar_flow_map_ms_h128_l4_5steps", "status": "ok", "elapsed_s": 517.8, "elapsed_fmt": "8m37s", "error": null, "timestamp": "2026-03-26T19:50:29.916427"}

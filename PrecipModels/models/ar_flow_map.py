@@ -22,6 +22,20 @@ Sampling: h = GRU(window_{t-W:t-1})  [context from history]
           or: z_1 = Euler(z_0→1 via self.flow_map, h, n_steps)  [multi-step ODE]
           n_steps=1: single-step prediction (may collapse diversity)
           n_steps>1: multi-step ODE (better diversity, used by ar_flow_map_ms)
+
+Variants:
+  ar_flow_map       — base position predictor
+  ar_flow_map_lstm  — LSTM RNN context
+  ar_flow_map_ms    — multi-step refinement (n_steps=10)
+  ar_flow_map_sd    — LSD auxiliary loss (derivative matching)
+  ar_flow_map_res   — residual parameterization: output = z_s + (t-s)*MLP(...)
+
+Residual variant (ar_flow_map_res):
+  Standard position prediction collapses to output ≈ 0 (conditional mean) on sparse
+  precipitation data because MSE is minimized by predicting the mean. The residual fix
+  forces output = z_s + (t-s)*delta, so even if delta→0 the output tracks z_s.
+  This is structurally equivalent to a single Euler step of a velocity model.
+  use_residual=True must be saved to config.json for correct checkpoint loading.
 """
 
 import math
@@ -61,15 +75,17 @@ class ARFlowMap(BaseModel):
                  lsd_weight: float = 0.0,
                  ayf_weight: float = 0.0,
                  ayf_delta_t: float = 0.05,
+                 use_residual: bool = False,
                  **kwargs):
         super().__init__()
-        self.n_stations  = input_size
-        self.window_size = window_size
-        self.rnn_type    = rnn_type
-        self.n_steps     = n_steps
-        self.lsd_weight  = lsd_weight
-        self.ayf_weight  = ayf_weight
-        self.ayf_delta_t = ayf_delta_t
+        self.n_stations   = input_size
+        self.window_size  = window_size
+        self.rnn_type     = rnn_type
+        self.n_steps      = n_steps
+        self.lsd_weight   = lsd_weight
+        self.ayf_weight   = ayf_weight
+        self.ayf_delta_t  = ayf_delta_t
+        self.use_residual = use_residual
         self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
@@ -100,6 +116,22 @@ class ARFlowMap(BaseModel):
             'day_cos': torch.full((batch_size,), math.cos(angle),               device=device),
         }
 
+    def _phi(self, z_s, s_emb, t_emb, h_cond, dt=None):
+        """Compute flow map output, with optional residual parameterization.
+
+        Standard: output = MLP(z_s, s_emb, t_emb, h_cond)  [predicts z_t directly]
+        Residual:  output = z_s + dt * MLP(...)              [predicts displacement delta]
+
+        The residual form prevents stochastic collapse: even if MLP→0, output tracks z_s.
+        dt: scalar float (in _generate_sample) or (B,) tensor (in loss).
+        """
+        out = self.flow_map(z_s, s_emb, t_emb, h_cond)
+        if self.use_residual:
+            if isinstance(dt, float):
+                return z_s + dt * out
+            return z_s + dt.unsqueeze(-1) * out
+        return out
+
     def loss(self, x, beta=1.0, **kwargs):
         """MSE regression: Phi_theta(z_s, s, t, h) → z_t on OT paths."""
         if len(x) == 3:
@@ -121,13 +153,16 @@ class ARFlowMap(BaseModel):
         s_emb = self.t_embed(s)
         t_emb = self.t_embed(t)
 
-        z_t_pred = self.flow_map(z_s, s_emb, t_emb, h_cond)
+        z_t_pred = self._phi(z_s, s_emb, t_emb, h_cond, dt=(t - s))
         fm_loss  = F.mse_loss(z_t_pred, z_t)
 
         lsd_loss = torch.tensor(0.0, device=device)
         if self.lsd_weight > 0.0:
             def phi_wrt_t(t_val):
                 t_e = self.t_embed(t_val)
+                if self.use_residual:
+                    delta = self.flow_map(z_s, s_emb, t_e, h_cond)
+                    return z_s + (t_val - s).unsqueeze(-1) * delta
                 return self.flow_map(z_s, s_emb, t_e, h_cond)
             _, dphi_dt = func_jvp(phi_wrt_t, (t,), (torch.ones_like(t),))
             lsd_loss = F.mse_loss(dphi_dt, (target - z_0).detach())
@@ -139,10 +174,10 @@ class ARFlowMap(BaseModel):
                 cond_emb_t = self._teacher._cond_embed(cond, B, device)
                 h_cond_t = torch.cat([h_t, cond_emb_t], dim=-1)
                 v_teacher = self._teacher.velocity(z_t, self._teacher.t_embed(t), h_cond_t)
-                dt = self.ayf_delta_t
-                t_back = (t - dt).clamp(min=0.0)
+                ayf_dt = self.ayf_delta_t
+                t_back = (t - ayf_dt).clamp(min=0.0)
             # Student's backward prediction outside no_grad to allow gradient flow
-            z_t_back = self.flow_map(z_s, s_emb, self.t_embed(t_back), h_cond)
+            z_t_back = self._phi(z_s, s_emb, self.t_embed(t_back), h_cond, dt=(t_back - s))
             actual_dt = (t - t_back).clamp(min=1e-6)
             v_student = (z_t.detach() - z_t_back) / actual_dt.unsqueeze(-1)
             ayf_loss = F.mse_loss(v_student, v_teacher.detach())
@@ -166,14 +201,14 @@ class ARFlowMap(BaseModel):
         z_0 = torch.randn(n, self.n_stations, device=device)
         s0_emb = self.t_embed(torch.zeros(n, device=device))
         t1_emb = self.t_embed(torch.ones(n, device=device))
-        # Initial prediction: direct jump from t=0 to t=1
-        z_1 = self.flow_map(z_0, s0_emb, t1_emb, h_cond)
+        # Initial prediction: direct jump from t=0 to t=1 (dt = 1.0 - 0.0 = 1.0)
+        z_1 = self._phi(z_0, s0_emb, t1_emb, h_cond, dt=1.0)
         # Refinement: probe from intermediate OT-path points built with current z_1 estimate
         for i in range(1, self.n_steps):
             s_val = i / self.n_steps
             z_s = (1.0 - s_val) * z_0 + s_val * z_1   # always on OT path ✓
             s_emb = self.t_embed(torch.full((n,), s_val, device=device))
-            z_1 = self.flow_map(z_s, s_emb, t1_emb, h_cond)
+            z_1 = self._phi(z_s, s_emb, t1_emb, h_cond, dt=(1.0 - s_val))
         return z_1.clamp(min=0.0)
 
     @torch.no_grad()

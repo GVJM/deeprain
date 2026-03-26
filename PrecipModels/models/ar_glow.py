@@ -83,7 +83,7 @@ class _InvLinearLU(nn.Module):
 class _CondAffineCoupling(nn.Module):
     """GLOW coupling conditioned on h. Splits: x1 = x[:n_half], x2 = x[n_half:]."""
 
-    def __init__(self, input_size: int, rnn_hidden: int, cond_dim: int, hidden: int = 128):
+    def __init__(self, input_size: int, rnn_hidden: int, cond_dim: int, hidden: int = 128, dropout: float = 0.0):
         super().__init__()
         n_half = input_size // 2
         n_free = input_size - n_half
@@ -91,6 +91,7 @@ class _CondAffineCoupling(nn.Module):
         self.n_free = n_free
         self.net = nn.Sequential(
             nn.Linear(n_half + rnn_hidden + cond_dim, hidden), nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden, hidden), nn.ReLU(),
             nn.Linear(hidden, n_free * 2),
         )
@@ -112,7 +113,7 @@ class _CondAffineCoupling(nn.Module):
 
 class ARGlow(BaseModel):
     def __init__(self, input_size=90, window_size=30, rnn_hidden=128,
-                 n_steps=8, hidden_size=128, rnn_type='gru', **kwargs):
+                 n_steps=8, hidden_size=128, rnn_type='gru', dropout=0.0, **kwargs):
         super().__init__()
         self.n_stations  = input_size
         self.window_size = window_size
@@ -122,7 +123,7 @@ class ARGlow(BaseModel):
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.act_norms   = nn.ModuleList([_ActNorm(input_size)           for _ in range(n_steps)])
         self.inv_linears = nn.ModuleList([_InvLinearLU(input_size)       for _ in range(n_steps)])
-        self.couplings   = nn.ModuleList([_CondAffineCoupling(input_size, rnn_hidden, self.cond_dim, hidden_size)
+        self.couplings   = nn.ModuleList([_CondAffineCoupling(input_size, rnn_hidden, self.cond_dim, hidden_size, dropout)
                                           for _ in range(n_steps)])
 
     def _encode_window(self, window):

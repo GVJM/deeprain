@@ -137,6 +137,15 @@ ARCH_DEFAULTS = {
     "ar_flow_map_sd":    {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
                           "n_steps": 1, "lsd_weight": 0.1},
+    "ar_flow_map_res":   {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
+                          "n_steps": 1, "use_residual": True, "lsd_weight": 0.0},
+    "ar_ddpm":           {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
+                          "n_sample_steps": 50},
+    "ar_ddpm_lstm":      {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "lstm",
+                          "n_sample_steps": 50},
     "ar_mean_flow_ayfm": {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
                           "mf_ratio": 0.25, "jvp_eps": 0.01,
@@ -155,7 +164,8 @@ _TEMPORAL_MODELS = {
     "ar_glow", "ar_glow_lstm",
     "ar_mean_flow", "ar_mean_flow_lstm", "ar_mean_flow_v2",
     "ar_flow_map", "ar_flow_map_lstm", "ar_flow_map_ms",
-    "ar_flow_map_sd",
+    "ar_flow_map_sd", "ar_flow_map_res",
+    "ar_ddpm", "ar_ddpm_lstm",
     "ar_mean_flow_ayfm",
 }
 
@@ -252,13 +262,14 @@ def train_neural_model(
     opt_config: tuple = None,   # (use_amp, amp_dtype) or None
     early_stop_patience: int = 0,
     val_freq: int = 1,
+    weight_decay: float = 0.0,
 ) -> Tuple[List[dict], float, dict]:
     _use_amp, _amp_dtype = opt_config if opt_config is not None else (False, torch.float32)
     t_data = torch.FloatTensor(train_norm).to(device)
     dataset = TensorDataset(t_data, t_data)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     if optimizer_state is not None:
         optimizer.load_state_dict(optimizer_state)
 
@@ -365,6 +376,7 @@ def train_neural_model_temporal(
     opt_config: tuple = None,
     early_stop_patience: int = 0,
     val_freq: int = 1,
+    weight_decay: float = 0.0,
 ) -> Tuple[List[dict], float, dict]:
     """Training loop for autoregressive temporal models.
     Uses TemporalDataset or TemporalCondDataset; passes tuple to model.loss()."""
@@ -377,7 +389,7 @@ def train_neural_model_temporal(
         dataset = TemporalDataset(train_norm, window_size)
         loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     if optimizer_state is not None:
         optimizer.load_state_dict(optimizer_state)
 
@@ -773,6 +785,7 @@ def train_model(args):
     val_ratio = getattr(args, "val_ratio", 0.0) or 0.0
     early_stop_patience = getattr(args, "early_stop_patience", 0) or 0
     val_freq = getattr(args, "val_freq", 1) or 1
+    weight_decay = args.weight_decay if getattr(args, "weight_decay", None) is not None else defaults.get("weight_decay", 0.0)
 
     latent_occ = args.latent_occ if args.latent_occ is not None else defaults.get("latent_occ")
     latent_amt = args.latent_amt if args.latent_amt is not None else defaults.get("latent_amt")
@@ -849,8 +862,11 @@ def train_model(args):
         "ayf_delta_t":             _arch("ayf_delta_t"),
         "tangent_warmup_steps":    _arch("tangent_warmup_steps"),
         "improved_interval_sampling": _arch("improved_interval_sampling"),
+        "use_residual":            _arch("use_residual"),
         "mu_sad":                  _arch("mu_sad"),
         "sigma_sad":               _arch("sigma_sad"),
+        "dropout":                 _arch("dropout"),
+        "weight_decay":            weight_decay,
     }
     # Parâmetros específicos do LDM (estágio 2: DDPM)
     if model_name == "ldm":
@@ -922,8 +938,10 @@ def train_model(args):
         ("ayf_delta_t",            _arch("ayf_delta_t")),
         ("tangent_warmup_steps",   _arch("tangent_warmup_steps")),
         ("improved_interval_sampling", _arch("improved_interval_sampling")),
+        ("use_residual",           _arch("use_residual")),
         ("mu_sad",                 _arch("mu_sad")),
         ("sigma_sad",              _arch("sigma_sad")),
+        ("dropout",                _arch("dropout")),
     ]:
         if val is not None:
             extra_model_kwargs[key] = val
@@ -1205,6 +1223,7 @@ def train_model(args):
             opt_config=_opt_config,
             early_stop_patience=early_stop_patience,
             val_freq=val_freq,
+            weight_decay=weight_decay,
         )
     else:
         history, ms_per_epoch, final_opt_state, interrupted = train_neural_model(
@@ -1222,6 +1241,7 @@ def train_model(args):
             opt_config=_opt_config,
             early_stop_patience=early_stop_patience,
             val_freq=val_freq,
+            weight_decay=weight_decay,
         )
 
     # ── Se interrompido, carrega melhor checkpoint salvo em disco ──────────
@@ -1344,6 +1364,10 @@ def main():
     
     parser.add_argument("--kl_warmup", type=int, default=None,
                         help="Épocas de warmup do KL (VAE/HurdleVAE)")
+    parser.add_argument("--weight_decay", type=float, default=None,
+                        help="L2 weight decay for Adam optimizer (default: 0.0 — no regularization)")
+    parser.add_argument("--dropout", type=float, default=None,
+                        help="Dropout rate in coupling MLP layers (flow models; default: 0.0)")
     parser.add_argument("--device", type=str, default="auto",
                         help="'auto', 'cpu', ou 'cuda'")
     parser.add_argument("--data_path", type=str, default="../dados_barragens_btg/inmet_relevant_data.csv",
@@ -1414,6 +1438,10 @@ def main():
                         # NOTE: default=None (not False) is intentional — allows _arch() to fall
                         # through to ARCH_DEFAULTS, so ar_mean_flow_ayfm gets True by default.
                         # Changing to default=False would break the ARCH_DEFAULTS override.
+                        )
+    parser.add_argument("--use_residual", action="store_true", default=None,
+                        help="Use residual parameterization for ar_flow_map_res: output = z_s + (t-s)*delta"
+                        # NOTE: default=None is intentional — ARCH_DEFAULTS sets True for ar_flow_map_res.
                         )
     parser.add_argument("--mu_sad", type=float, default=None,
                         help="Mean of normal dist for improved interval sampling")

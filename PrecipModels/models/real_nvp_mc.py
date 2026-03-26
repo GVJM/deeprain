@@ -36,7 +36,7 @@ class _CouplingLayerCond(nn.Module):
         y2 = x2 * exp(tanh(s)) + t
     """
 
-    def __init__(self, input_size: int, embed_dim: int, mask: Tensor, hidden: int = 256):
+    def __init__(self, input_size: int, embed_dim: int, mask: Tensor, hidden: int = 256, dropout: float = 0.0):
         super().__init__()
         self.register_buffer('mask', mask.float())
         n_active = int(mask.sum().item())
@@ -44,6 +44,7 @@ class _CouplingLayerCond(nn.Module):
 
         self.net = nn.Sequential(
             nn.Linear(n_active + embed_dim, hidden), nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden, hidden), nn.ReLU(),
             nn.Linear(hidden, n_free * 2),  # s e t concatenados
         )
@@ -96,6 +97,7 @@ class RealNVPMC(BaseModel):
         input_size: int = 15,
         n_coupling: int = 12,
         hidden_size: int = 256,
+        dropout: float = 0.0,
         **kwargs,
     ):
         super().__init__()
@@ -114,7 +116,7 @@ class RealNVPMC(BaseModel):
             if mask.all() or (~mask).all():
                 mask = torch.zeros(input_size, dtype=torch.bool)
                 mask[:input_size // 2] = True
-            self.layers.append(_CouplingLayerCond(input_size, E, mask, hidden_size))
+            self.layers.append(_CouplingLayerCond(input_size, E, mask, hidden_size, dropout))
 
         # Escala aprendida (equivale a batch norm simplificado)
         self.log_scale = nn.Parameter(torch.zeros(input_size))

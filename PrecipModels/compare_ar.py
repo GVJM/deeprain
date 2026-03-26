@@ -86,7 +86,7 @@ from ar import (
     plot_station_rank_heatmap, plot_per_station_detail,
     plot_per_station_lag1_scatter, plot_per_station_wetfreq_scatter,
     write_comparison_report, write_family_summary,
-    write_hyperparameter_sensitivity_report,
+    write_hyperparameter_sensitivity_report, write_metrics_csv,
 )
 from scoring import QUALITY_METRICS, _metric_array, compute_composite
 
@@ -157,8 +157,8 @@ def main():
     parser.add_argument("--output_dir",   type=str,   default="./outputs")
     parser.add_argument("--top_n_per_family", type=int, default=None,
                         help="Keep only top N variants per family in top-level plots, "
-                             "ranked by combined Tier1+Tier2 score. Per-family detail "
-                             "dirs (families/) always show all variants.")
+                             "ranked by combined Tier1+Tier2 score. Also used as default "
+                             "for --top_n_family_detail if that flag is not set.")
     parser.add_argument("--recompute_tier1", action="store_true",
                         help="Re-evaluate Tier 1 metrics with --n_samples and overwrite "
                              "metrics.json in-place before generating charts")
@@ -168,6 +168,12 @@ def main():
                         help="Subfolder in output_dir for this comparison run; allows multiple comparisons to coexist")
     parser.add_argument("--families", nargs="+", default=None,
                         help="Optional filter to only include certain model families (e.g. 'ar_vae')")
+    parser.add_argument("--max_series_per_chart", type=int, default=0,
+                        help="Max variants per detail chart in family dirs; 0 = no limit. "
+                             "When exceeded, splits into part_01/, part_02/, ... subdirs.")
+    parser.add_argument("--top_n_family_detail", type=int, default=None,
+                        help="Limit family detail dirs to top-N variants by score. "
+                             "Defaults to --top_n_per_family if not set.")
 
     args = parser.parse_args()
 
@@ -210,7 +216,6 @@ def main():
 
     # ── Family assignment ──
     families = {v: get_family(v, args.output_dir) for v in all_metrics}
-    print(f"\n Families DICT: {families}")
 
     # ── Composite score ──
     scores, normalized = compute_composite(all_metrics)
@@ -229,6 +234,7 @@ def main():
         write_family_summary(all_metrics, scores, families, out_dir)
         write_hyperparameter_sensitivity_report(all_metrics, scores, families, out_dir,
                                                 output_dir=args.output_dir)
+        write_metrics_csv(all_metrics, {}, scores, families, out_dir)
 
         # Filter Tier 1 variant-level plots if --top_n_per_family set
         # (uses Tier 1 composite score — Tier 2 not yet available here)
@@ -431,12 +437,19 @@ def main():
         plot_seasonal_accumulation(plot_scenarios, data_raw, obs_months, out_dir, families=families)
         plot_exceedance_frequency(plot_scenarios, data_raw, out_dir, families=families)
 
-        # ── Per-family detail dirs (all variants, unfiltered) ──
+        # ── Overwrite CSV with full Tier1+Tier2 data ──
+        write_metrics_csv(all_metrics, tier2_metrics, combined_scores, families, out_dir)
+
+        # ── Per-family detail dirs ──
+        family_detail_top_n = (args.top_n_family_detail if args.top_n_family_detail is not None
+                               else args.top_n_per_family)
         print("\n[compare_ar] Generating per-family detail dirs...")
         plot_family_detail_dirs(
             scenarios_by_model, data_raw, obs_months,
             all_metrics, tier2_metrics, families, out_dir,
             sc_start_month=sc_start_month,
+            top_n=family_detail_top_n,
+            max_per_chart=args.max_series_per_chart,
         )
 
         if not args.skip_station_analysis:

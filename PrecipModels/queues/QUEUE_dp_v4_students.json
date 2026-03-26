@@ -1,0 +1,28 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/merge",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "model": "ar_flow_map_sd",
+    "lsd_weight": 0.0,
+    "teacher_checkpoint": "outputs_v4_fm/ar_flow_match_tch_h256_l4"
+  },
+  "entries": [
+    {"variant_name": "ar_flow_map_ayf_h64_l4_ayf01",       "hidden_size": 64,  "rnn_hidden": 32,  "n_layers": 4, "ayf_weight": 0.1},
+    {"variant_name": "ar_flow_map_ayf_h128_l4_ayf005",     "hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "ayf_weight": 0.05},
+    {"variant_name": "ar_flow_map_ayf_h128_l4_ayf01",      "hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "ayf_weight": 0.1},
+    {"variant_name": "ar_flow_map_ayf_h128_l4_ayf03",      "hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "ayf_weight": 0.3},
+    {"variant_name": "ar_flow_map_ayf_h128_l4_ayf05",      "hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "ayf_weight": 0.5},
+    {"variant_name": "ar_flow_map_ayf_h128_l4_ayf01_lsd01","hidden_size": 128, "rnn_hidden": 64,  "n_layers": 4, "ayf_weight": 0.1, "lsd_weight": 0.1},
+    {"variant_name": "ar_flow_map_ayf_h256_l4_ayf01",      "hidden_size": 256, "rnn_hidden": 128, "n_layers": 4, "ayf_weight": 0.1},
+    {"variant_name": "ar_flow_map_ayf_h256_l4_combined",   "hidden_size": 256, "rnn_hidden": 128, "n_layers": 4, "ayf_weight": 0.1, "lsd_weight": 0.1},
+    {"variant_name": "ar_flow_map_ayf_h128_l4_mft_ayf01",     "hidden_size": 128, "rnn_hidden": 64, "n_layers": 4, "ayf_weight": 0.1, "teacher_checkpoint": "outputs_v4_fm/ar_mean_flow_tch_h256_l4"},
+    {"variant_name": "ar_flow_map_ayf_h128_l4_mft_combined",  "hidden_size": 128, "rnn_hidden": 64, "n_layers": 4, "ayf_weight": 0.1, "lsd_weight": 0.1, "teacher_checkpoint": "outputs_v4_fm/ar_mean_flow_tch_h256_l4"}
+  ]
+}

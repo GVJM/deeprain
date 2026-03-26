@@ -44,6 +44,7 @@ from models.ar_real_nvp import ARRealNVP
 from models.ar_glow import ARGlow
 from models.ar_mean_flow import ARMeanFlow
 from models.ar_flow_map import ARFlowMap
+from models.ar_ddpm import ARDiffusion
 
 _MODEL_REGISTRY = {
     "copula": GaussianCopula,
@@ -90,7 +91,10 @@ _MODEL_REGISTRY = {
     "ar_flow_map_lstm":  ARFlowMap,
     "ar_flow_map_ms":    ARFlowMap,
     "ar_flow_map_sd":    ARFlowMap,
+    "ar_flow_map_res":   ARFlowMap,  # residual parameterization: output = z_s + (t-s)*delta
     "ar_mean_flow_ayfm": ARMeanFlow,
+    "ar_ddpm":           ARDiffusion,    # VP-SDE + v-prediction teacher
+    "ar_ddpm_lstm":      ARDiffusion,
 }
 
 MODEL_NAMES = list(_MODEL_REGISTRY.keys())

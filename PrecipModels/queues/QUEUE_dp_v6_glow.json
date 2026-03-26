@@ -1,0 +1,52 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_glow",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "model": "ar_glow",
+    "hidden_size": 64,
+    "rnn_hidden": 128,
+    "n_steps": 8
+  },
+  "entries": [
+    {
+      "_comment": "=== Window size ablation (baseline: h64, rnn128, s8, w30 = rank #1) ===",
+      "variant_name": "ar_glow_h64_w14",
+      "window_size": 14
+    },
+    {
+      "variant_name": "ar_glow_h64_w60",
+      "window_size": 60
+    },
+    {
+      "_comment": "=== rnn_hidden x window_size cross ===",
+      "variant_name": "ar_glow_h64_w30_rnn256",
+      "rnn_hidden": 256,
+      "window_size": 30
+    },
+    {
+      "_comment": "=== h128 + window (bigger model + longer context) ===",
+      "variant_name": "ar_glow_h128_w30",
+      "hidden_size": 128,
+      "window_size": 30
+    },
+    {
+      "variant_name": "ar_glow_h128_w30_rnn256",
+      "hidden_size": 128,
+      "rnn_hidden": 256,
+      "window_size": 30
+    },
+    {
+      "_comment": "=== More flow steps with w30 (default n_steps=8 already won; try 12) ===",
+      "variant_name": "ar_glow_h64_w30_s12",
+      "n_steps": 12,
+      "window_size": 30
+    }
+  ]
+}

@@ -49,7 +49,7 @@ class _CondCouplingLayer(nn.Module):
     Invertibility preserved: h only conditions s,t computation, not x_fixed.
     """
 
-    def __init__(self, input_size: int, mask: Tensor, rnn_hidden: int, cond_dim: int, hidden: int = 128):
+    def __init__(self, input_size: int, mask: Tensor, rnn_hidden: int, cond_dim: int, hidden: int = 128, dropout: float = 0.0):
         super().__init__()
         self.register_buffer('mask', mask.float())
         n_fixed = int(mask.sum().item())
@@ -58,6 +58,7 @@ class _CondCouplingLayer(nn.Module):
         self.n_free  = n_free
         self.net = nn.Sequential(
             nn.Linear(n_fixed + rnn_hidden + cond_dim, hidden), nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden, hidden), nn.ReLU(),
             nn.Linear(hidden, n_free * 2),
         )
@@ -90,7 +91,7 @@ class _CondCouplingLayer(nn.Module):
 
 class ARRealNVP(BaseModel):
     def __init__(self, input_size=90, window_size=30, rnn_hidden=128,
-                 n_coupling=8, hidden_size=256, rnn_type='gru', **kwargs):
+                 n_coupling=8, hidden_size=256, rnn_type='gru', dropout=0.0, **kwargs):
         super().__init__()
         self.n_stations  = input_size
         self.window_size = window_size
@@ -106,7 +107,7 @@ class ARRealNVP(BaseModel):
             if mask.all() or (~mask).all():
                 mask = torch.zeros(input_size, dtype=torch.bool)
                 mask[:input_size // 2] = True
-            self.layers.append(_CondCouplingLayer(input_size, mask, rnn_hidden, self.cond_dim, hidden_size))
+            self.layers.append(_CondCouplingLayer(input_size, mask, rnn_hidden, self.cond_dim, hidden_size, dropout))
         self.log_scale = nn.Parameter(torch.zeros(input_size))
 
     def _encode_window(self, window: Tensor) -> Tensor:

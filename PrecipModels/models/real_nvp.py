@@ -41,7 +41,7 @@ class _CouplingLayer(nn.Module):
         y1 = x1 (não modificado)
     """
 
-    def __init__(self, input_size: int, mask: Tensor, hidden: int = 128):
+    def __init__(self, input_size: int, mask: Tensor, hidden: int = 128, dropout: float = 0.0):
         super().__init__()
         self.register_buffer('mask', mask.float())
         n_active = int(mask.sum().item())
@@ -49,6 +49,7 @@ class _CouplingLayer(nn.Module):
         # MLP que processa a metade não-transformada
         self.net = nn.Sequential(
             nn.Linear(n_active, hidden), nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden, hidden), nn.ReLU(),
             nn.Linear(hidden, (input_size - n_active) * 2),  # s e t
         )
@@ -104,6 +105,7 @@ class RealNVP(BaseModel):
         input_size: int = 15,
         n_coupling: int = 12,
         hidden_size: int = 256,
+        dropout: float = 0.0,
         **kwargs,
     ):
         super().__init__()
@@ -122,7 +124,7 @@ class RealNVP(BaseModel):
             if mask.all() or (~mask).all():
                 mask = torch.zeros(input_size, dtype=torch.bool)
                 mask[:input_size // 2] = True
-            self.layers.append(_CouplingLayer(input_size, mask, hidden_size))
+            self.layers.append(_CouplingLayer(input_size, mask, hidden_size, dropout))
 
         # Normalização de ativação (batch norm nos reais fluxos)
         self.log_scale = nn.Parameter(torch.zeros(input_size))

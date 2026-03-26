@@ -12,10 +12,12 @@ AR_FAMILIES = [
     "ar_vae",
     "ar_flow_match",
     "ar_flow_map",
+    "ar_flow_map_res",
     "ar_mean_flow",
     "ar_latent_fm",
     "ar_real_nvp",
     "ar_glow",
+    "ar_ddpm",
 ]
 
 OUTLIER_STATION = "st_362"
@@ -155,13 +157,13 @@ def load_ar_model(variant: str, output_dir: str, input_size: int, device: torch.
     # Float params that condition model architecture
     for key in ("occ_weight", "jvp_eps", "mf_ratio",
                 "lsd_weight", "ayf_weight", "ayf_delta_t",
-                "mu_sad", "sigma_sad"):
+                "mu_sad", "sigma_sad", "dropout"):
         val = cfg.get(key)
         if val is not None:
             model_kwargs[key] = float(val)
 
     # Bool params
-    for key in ("improved_interval_sampling",):
+    for key in ("improved_interval_sampling", "use_residual"):
         val = cfg.get(key)
         if val is not None:
             model_kwargs[key] = bool(val)

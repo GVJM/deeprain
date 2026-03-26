@@ -1,4 +1,5 @@
 """ar/reports.py — Text report generation for AR model comparison."""
+import csv
 import os
 import json
 import sys
@@ -122,4 +123,37 @@ def write_hyperparameter_sensitivity_report(
     out_path = os.path.join(out_dir, "ar_hyperparameter_sensitivity.txt")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+    print(f"  [report] {out_path}")
+
+
+def write_metrics_csv(
+    all_metrics: dict,
+    tier2_metrics: dict,
+    scores: dict,
+    families: dict,
+    out_dir: str,
+):
+    """Export all Tier1 + Tier2 metrics to CSV sorted by composite score."""
+    tier1_keys = [k for k, _, _ in QUALITY_METRICS]
+    tier2_keys = [k for k, _, _ in TIER2_METRICS]
+
+    variants = sorted(scores.keys(), key=lambda v: scores.get(v, 1.0))
+    fieldnames = ["variant", "family", "composite_score"] + tier1_keys + tier2_keys
+    rows = []
+    for v in variants:
+        m = all_metrics.get(v, {})
+        t2 = (tier2_metrics or {}).get(v, {})
+        row = {"variant": v, "family": families.get(v, "?"),
+               "composite_score": scores.get(v, "")}
+        for k in tier1_keys:
+            row[k] = m.get(k, "")
+        for k in tier2_keys:
+            row[k] = t2.get(k, "")
+        rows.append(row)
+
+    out_path = os.path.join(out_dir, "metrics_comparison.csv")
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
     print(f"  [report] {out_path}")

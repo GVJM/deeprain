@@ -1,0 +1,79 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_latentfm",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "model": "ar_latent_fm",
+    "n_layers": 4
+  },
+  "entries": [
+    {
+      "_comment": "=== h256 — never tried for ar_latent_fm (biggest gap) ===",
+      "variant_name": "ar_latent_fm_h256_l4",
+      "hidden_size": 256,
+      "gru_hidden": 128
+    },
+    {
+      "variant_name": "ar_latent_fm_h256_l6",
+      "hidden_size": 256,
+      "gru_hidden": 128,
+      "n_layers": 6
+    },
+    {
+      "variant_name": "ar_latent_fm_h256_lat64",
+      "hidden_size": 256,
+      "gru_hidden": 128,
+      "latent_size": 64
+    },
+    {
+      "_comment": "=== window_size variants — never tried for ar_latent_fm (w30 won for ar_glow) ===",
+      "variant_name": "ar_latent_fm_h64_l4_w30",
+      "hidden_size": 64,
+      "gru_hidden": 32,
+      "window_size": 30
+    },
+    {
+      "variant_name": "ar_latent_fm_h64_lat64_w30",
+      "hidden_size": 64,
+      "gru_hidden": 32,
+      "latent_size": 64,
+      "window_size": 30
+    },
+    {
+      "variant_name": "ar_latent_fm_h128_l4_w30",
+      "hidden_size": 128,
+      "gru_hidden": 64,
+      "window_size": 30
+    },
+    {
+      "_comment": "=== Missing latent sizes ===",
+      "variant_name": "ar_latent_fm_h64_lat32",
+      "hidden_size": 64,
+      "gru_hidden": 32,
+      "latent_size": 32
+    },
+    {
+      "variant_name": "ar_latent_fm_h128_lat16",
+      "hidden_size": 128,
+      "gru_hidden": 64,
+      "latent_size": 16
+    },
+    {
+      "_comment": "=== Larger GRU — always used gru=hidden/2; try equal ===",
+      "variant_name": "ar_latent_fm_h64_gru64",
+      "hidden_size": 64,
+      "gru_hidden": 64
+    },
+    {
+      "variant_name": "ar_latent_fm_h128_gru128",
+      "hidden_size": 128,
+      "gru_hidden": 128
+    }
+  ]
+}
