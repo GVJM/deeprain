@@ -12,6 +12,7 @@ from ar.loader import (
     OUTLIER_STATION,
     OUTLIER_MODELS,
     _is_ar_dir,
+    _resolve_model_dir,
     discover_ar_models,
     discover_ar_models_with_checkpoints,
     get_family,

@@ -57,12 +57,16 @@ class _LatentVelocityMLP(nn.Module):
     """
 
     def __init__(self, latent_size: int, t_embed_dim: int, gru_hidden: int, cond_dim: int,
-                 hidden: int = 256, n_layers: int = 4):
+                 hidden: int = 256, n_layers: int = 4, dropout: float = 0.0):
         super().__init__()
         in_dim = latent_size + t_embed_dim + gru_hidden + cond_dim
         layers = [nn.Linear(in_dim, hidden), nn.SiLU()]
+        if dropout > 0.0:
+            layers.append(nn.Dropout(dropout))
         for _ in range(n_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
         layers.append(nn.Linear(hidden, latent_size))
         self.net = nn.Sequential(*layers)
 
@@ -103,6 +107,7 @@ class ARLatentFM(BaseModel):
         t_embed_dim: int = 64,
         n_sample_steps: int = 50,
         free_bits: float = 0.5,
+        dropout: float = 0.0,
         **kwargs,
     ):
         """
@@ -138,25 +143,26 @@ class ARLatentFM(BaseModel):
 
         # ── VAE Encoder: [target(S) || h(H)] → (mu, logvar) ──────────────────
         enc_in = input_size + gru_hidden + self.cond_dim
-        self.encoder = nn.Sequential(
-            nn.Linear(enc_in, hidden_size),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.LeakyReLU(0.1),
-        )
+        _enc_layers = [nn.Linear(enc_in, hidden_size), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _enc_layers.append(nn.Dropout(dropout))
+        _enc_layers += [nn.Linear(hidden_size, hidden_size // 2), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _enc_layers.append(nn.Dropout(dropout))
+        self.encoder = nn.Sequential(*_enc_layers)
         self.fc_mu     = nn.Linear(hidden_size // 2, latent_size)
         self.fc_logvar = nn.Linear(hidden_size // 2, latent_size)
 
         # ── VAE Decoder: [z(L) || h(H)] → y_hat(S) ───────────────────────────
         dec_in = latent_size + gru_hidden + self.cond_dim
-        self.decoder = nn.Sequential(
-            nn.Linear(dec_in, hidden_size // 2),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hidden_size // 2, hidden_size),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hidden_size, input_size),
-            nn.ReLU(),  # non-negative precipitation
-        )
+        _dec_layers = [nn.Linear(dec_in, hidden_size // 2), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _dec_layers.append(nn.Dropout(dropout))
+        _dec_layers += [nn.Linear(hidden_size // 2, hidden_size), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _dec_layers.append(nn.Dropout(dropout))
+        _dec_layers += [nn.Linear(hidden_size, input_size), nn.ReLU()]
+        self.decoder = nn.Sequential(*_dec_layers)
 
         # ── Flow head: latent velocity network ───────────────────────────────
         self.t_embed  = SinusoidalEmbedding(t_embed_dim)
@@ -167,6 +173,7 @@ class ARLatentFM(BaseModel):
             cond_dim=self.cond_dim,
             hidden=hidden_size,
             n_layers=n_layers,
+            dropout=dropout,
         )
 
     # ── Internal components ──────────────────────────────────────────────────

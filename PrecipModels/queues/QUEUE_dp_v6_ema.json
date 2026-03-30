@@ -1,0 +1,49 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_ema",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "model": "ar_glow",
+    "hidden_size": 64,
+    "rnn_hidden": 128,
+    "n_steps": 8,
+    "window_size":7
+  },
+  "entries": [
+    {
+      "_comment": "=== EMA decay sweep (baseline arch: h64_w30_rnn128_s8 — rank #1 in v6_glow) ===",
+      "variant_name": "ar_glow_h64_ema999",
+      "ema_decay": 0.999
+    },
+    {
+      "variant_name": "ar_glow_h64_ema9999",
+      "ema_decay": 0.9999
+    },
+    {
+      "_comment": "=== EMA + cosine LR schedule ===",
+      "variant_name": "ar_glow_h64_ema999_cos",
+      "ema_decay": 0.999,
+      "lr_schedule": "cosine"
+    },
+    {
+      "_comment": "=== EMA combined with weight_decay (cross-axis with v6_reg) ===",
+      "variant_name": "ar_glow_h64_wd1e4_ema999",
+      "ema_decay": 0.999,
+      "weight_decay": 0.0001
+    },
+    {
+      "_comment": "=== ar_real_nvp: EMA sweep (same overfitting pattern) ===",
+      "variant_name": "ar_rnvp_h256_ema999",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "ema_decay": 0.999
+    }
+  ]
+}

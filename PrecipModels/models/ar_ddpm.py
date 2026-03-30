@@ -64,12 +64,16 @@ class _VPredMLP(nn.Module):
     """v-prediction denoiser: [x_t(S) || t_emb(T) || h(H)] → v_theta(S)"""
 
     def __init__(self, data_dim, t_embed_dim, rnn_hidden, cond_dim,
-                 hidden=256, n_layers=4):
+                 hidden=256, n_layers=4, dropout=0.0):
         super().__init__()
         in_dim = data_dim + t_embed_dim + rnn_hidden + cond_dim
         layers = [nn.Linear(in_dim, hidden), nn.SiLU()]
+        if dropout > 0.0:
+            layers.append(nn.Dropout(dropout))
         for _ in range(n_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
         layers.append(nn.Linear(hidden, data_dim))
         self.net = nn.Sequential(*layers)
 
@@ -95,6 +99,7 @@ class ARDiffusion(BaseModel):
                  rnn_type='gru', n_sample_steps=50,
                  beta_min: float = _VP_BETA_MIN,
                  beta_max: float = _VP_BETA_MAX,
+                 dropout: float = 0.0,
                  **kwargs):
         super().__init__()
         self.n_stations    = input_size
@@ -108,7 +113,7 @@ class ARDiffusion(BaseModel):
         self.rnn           = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.t_embed       = SinusoidalEmbedding(t_embed_dim)
         self.denoiser      = _VPredMLP(
-            input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers
+            input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers, dropout
         )
 
     # ── Context encoding ─────────────────────────────────────────────────────

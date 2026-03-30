@@ -102,56 +102,62 @@ ARCH_DEFAULTS = {
     "thresholded_real_nvp_mc":  {"hidden_size": 256, "n_coupling": 12},
     "thresholded_glow_mc":      {"hidden_size": 128, "n_layers": 8},
     # ── AR Models ─────────────────────────────────────────────────────────────
-    "ar_vae":            {"gru_hidden": 128, "hidden_size": 256, "window_size": 30},
+    "ar_vae":            {"gru_hidden": 128, "hidden_size": 256, "window_size": 30,
+                          "dropout": 0.0},
     "ar_vae_v2":         {"gru_hidden": 128, "hidden_size": 256, "window_size": 30,
-                          "occ_weight": 0.1},
+                          "occ_weight": 0.1, "dropout": 0.0},
     "ar_flow_match":     {"gru_hidden": 128, "hidden_size": 256, "n_layers": 4,
-                          "t_embed_dim": 64, "n_sample_steps": 50, "window_size": 30},
+                          "t_embed_dim": 64, "n_sample_steps": 50, "window_size": 30,
+                          "dropout": 0.0},
     "ar_latent_fm":      {"gru_hidden": 128, "hidden_size": 256, "n_layers": 4,
-                          "t_embed_dim": 64, "n_sample_steps": 50, "window_size": 30},
+                          "t_embed_dim": 64, "n_sample_steps": 50, "window_size": 30,
+                          "dropout": 0.0},
     "ar_real_nvp":       {"rnn_hidden": 128, "n_coupling": 8, "hidden_size": 256,
-                          "window_size": 30, "rnn_type": "gru"},
+                          "window_size": 30, "rnn_type": "gru", "dropout": 0.0},
     "ar_real_nvp_lstm":  {"rnn_hidden": 128, "n_coupling": 8, "hidden_size": 256,
-                          "window_size": 30, "rnn_type": "lstm"},
+                          "window_size": 30, "rnn_type": "lstm", "dropout": 0.0},
     "ar_glow":           {"rnn_hidden": 128, "n_steps": 8, "hidden_size": 128,
-                          "window_size": 30, "rnn_type": "gru"},
+                          "window_size": 30, "rnn_type": "gru", "dropout": 0.0},
     "ar_glow_lstm":      {"rnn_hidden": 128, "n_steps": 8, "hidden_size": 128,
-                          "window_size": 30, "rnn_type": "lstm"},
+                          "window_size": 30, "rnn_type": "lstm", "dropout": 0.0},
     "ar_mean_flow":      {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30,
-                          "mf_ratio": 0.25, "rnn_type": "gru"},
+                          "mf_ratio": 0.25, "rnn_type": "gru", "dropout": 0.0},
     "ar_mean_flow_lstm": {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30,
-                          "mf_ratio": 0.25, "rnn_type": "lstm"},
+                          "mf_ratio": 0.25, "rnn_type": "lstm", "dropout": 0.0},
     "ar_mean_flow_v2":   {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30,
                           "mf_ratio": 0.25, "rnn_type": "gru",
-                          "jvp_eps": 0.05},
+                          "jvp_eps": 0.05, "dropout": 0.0},
     "ar_flow_map":       {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
-                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru"},
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
+                          "dropout": 0.0},
     "ar_flow_map_lstm":  {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
-                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "lstm"},
+                          "t_embed_dim": 64, "window_size": 30, "rnn_type": "lstm",
+                          "dropout": 0.0},
     "ar_flow_map_ms":    {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
-                          "n_steps": 10},
+                          "n_steps": 10, "dropout": 0.0},
     "ar_flow_map_sd":    {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
-                          "n_steps": 1, "lsd_weight": 0.1},
+                          "n_steps": 1, "lsd_weight": 0.1, "dropout": 0.0},
     "ar_flow_map_res":   {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
-                          "n_steps": 1, "use_residual": True, "lsd_weight": 0.0},
+                          "n_steps": 1, "use_residual": True, "lsd_weight": 0.0,
+                          "dropout": 0.0},
     "ar_ddpm":           {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
-                          "n_sample_steps": 50},
+                          "n_sample_steps": 50, "dropout": 0.0},
     "ar_ddpm_lstm":      {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "lstm",
-                          "n_sample_steps": 50},
+                          "n_sample_steps": 50, "dropout": 0.0},
     "ar_mean_flow_ayfm": {"rnn_hidden": 128, "hidden_size": 256, "n_layers": 4,
                           "t_embed_dim": 64, "window_size": 30, "rnn_type": "gru",
                           "mf_ratio": 0.25, "jvp_eps": 0.01,
                           "tangent_warmup_steps": 5000,
                           "improved_interval_sampling": True,
-                          "mu_sad": 0.0, "sigma_sad": 1.0},
+                          "mu_sad": 0.0, "sigma_sad": 1.0, "dropout": 0.0},
 }
 
 
@@ -203,6 +209,17 @@ from data_utils import (
     compute_norm_params,
     normalize_with_params,
 )
+
+
+def _make_ema(model: "BaseModel") -> dict:
+    """Initialise EMA shadow params from current model state."""
+    return {k: v.clone().detach() for k, v in model.state_dict().items()}
+
+
+def _update_ema(ema_params: dict, model: "BaseModel", decay: float) -> None:
+    """In-place EMA update: ema = decay*ema + (1-decay)*param."""
+    for k, v in model.state_dict().items():
+        ema_params[k].mul_(decay).add_(v.detach(), alpha=1.0 - decay)
 
 
 class EarlyStopper:
@@ -263,6 +280,8 @@ def train_neural_model(
     early_stop_patience: int = 0,
     val_freq: int = 1,
     weight_decay: float = 0.0,
+    ema_decay: float = 0.0,
+    lr_schedule: str = "none",
 ) -> Tuple[List[dict], float, dict]:
     _use_amp, _amp_dtype = opt_config if opt_config is not None else (False, torch.float32)
     t_data = torch.FloatTensor(train_norm).to(device)
@@ -272,6 +291,16 @@ def train_neural_model(
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     if optimizer_state is not None:
         optimizer.load_state_dict(optimizer_state)
+
+    ema_params = _make_ema(model) if ema_decay > 0.0 else None
+    if lr_schedule == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max_epochs, eta_min=lr * 0.01)
+    elif lr_schedule == "sqrt":
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
+            optimizer, lr_lambda=lambda ep: 1.0 / max(1.0, (ep / max(1, max_epochs // 4)) ** 0.5))
+    else:
+        scheduler = None
 
     eval_tensor = torch.FloatTensor(eval_norm).to(device) if eval_norm is not None else None
 
@@ -302,6 +331,8 @@ def train_neural_model(
                 loss_dict['total'].backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
+                if ema_params is not None:
+                    _update_ema(ema_params, model, ema_decay)
 
                 bsz = x_batch.shape[0]
                 for k, v in loss_dict.items():
@@ -322,7 +353,8 @@ def train_neural_model(
                 model.train()
                 if out_dir and avg['val_total'] < best_val_loss:
                     best_val_loss = avg['val_total']
-                    torch.save({'model_state_dict': model.state_dict(),
+                    _sd = ema_params if ema_params is not None else model.state_dict()
+                    torch.save({'model_state_dict': _sd,
                                 'optimizer_state_dict': optimizer.state_dict()},
                                os.path.join(out_dir, 'model_best_val.pt'))
                 if stopper.update(avg['val_total']):
@@ -333,10 +365,13 @@ def train_neural_model(
 
             if out_dir and avg['total'] < best_train_loss:
                 best_train_loss = avg['total']
-                torch.save({'model_state_dict': model.state_dict(),
+                _sd = ema_params if ema_params is not None else model.state_dict()
+                torch.save({'model_state_dict': _sd,
                             'optimizer_state_dict': optimizer.state_dict()},
                            os.path.join(out_dir, 'model_best_train.pt'))
 
+            if scheduler is not None:
+                scheduler.step()
             history.append(avg)
 
             if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
@@ -377,6 +412,9 @@ def train_neural_model_temporal(
     early_stop_patience: int = 0,
     val_freq: int = 1,
     weight_decay: float = 0.0,
+    ema_decay: float = 0.0,
+    lr_schedule: str = "none",
+    input_noise_std: float = 0.0,
 ) -> Tuple[List[dict], float, dict]:
     """Training loop for autoregressive temporal models.
     Uses TemporalDataset or TemporalCondDataset; passes tuple to model.loss()."""
@@ -392,6 +430,16 @@ def train_neural_model_temporal(
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     if optimizer_state is not None:
         optimizer.load_state_dict(optimizer_state)
+
+    ema_params = _make_ema(model) if ema_decay > 0.0 else None
+    if lr_schedule == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max_epochs, eta_min=lr * 0.01)
+    elif lr_schedule == "sqrt":
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
+            optimizer, lr_lambda=lambda ep: 1.0 / max(1.0, (ep / max(1, max_epochs // 4)) ** 0.5))
+    else:
+        scheduler = None
 
     if eval_norm is not None and eval_cond is not None:
         eval_dataset = TemporalCondDataset(eval_norm, eval_cond, window_size)
@@ -430,6 +478,8 @@ def train_neural_model_temporal(
                     cond_batch = None
                 window_batch = window_batch.to(device)
                 target_batch = target_batch.to(device)
+                if input_noise_std > 0.0:
+                    target_batch = (target_batch + torch.randn_like(target_batch) * input_noise_std).clamp(min=0.0)
                 optimizer.zero_grad()
                 with torch.autocast(device_type='cpu', dtype=_amp_dtype, enabled=_use_amp):
                     # MeanFlow correction warmup: only applies to models with mf_ratio attribute
@@ -441,6 +491,8 @@ def train_neural_model_temporal(
                 loss_dict['total'].backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
+                if ema_params is not None:
+                    _update_ema(ema_params, model, ema_decay)
                 global_step += 1
 
                 bsz = target_batch.shape[0]
@@ -477,7 +529,8 @@ def train_neural_model_temporal(
                 model.train()
                 if out_dir and avg['val_total'] < best_val_loss:
                     best_val_loss = avg['val_total']
-                    torch.save({'model_state_dict': model.state_dict(),
+                    _sd = ema_params if ema_params is not None else model.state_dict()
+                    torch.save({'model_state_dict': _sd,
                                 'optimizer_state_dict': optimizer.state_dict()},
                                os.path.join(out_dir, 'model_best_val.pt'))
                 if stopper.update(avg['val_total']):
@@ -488,10 +541,13 @@ def train_neural_model_temporal(
 
             if out_dir and avg['total'] < best_train_loss:
                 best_train_loss = avg['total']
-                torch.save({'model_state_dict': model.state_dict(),
+                _sd = ema_params if ema_params is not None else model.state_dict()
+                torch.save({'model_state_dict': _sd,
                             'optimizer_state_dict': optimizer.state_dict()},
                            os.path.join(out_dir, 'model_best_train.pt'))
 
+            if scheduler is not None:
+                scheduler.step()
             history.append(avg)
 
             if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
@@ -550,6 +606,9 @@ def train_neural_model_mc(
     opt_config: tuple = None,   # (use_amp, amp_dtype) or None
     early_stop_patience: int = 0,
     val_freq: int = 1,
+    weight_decay: float = 0.0,
+    ema_decay: float = 0.0,
+    lr_schedule: str = "none",
 ) -> Tuple[List[dict], float, dict]:
     """
     Loop de treino para modelos condicionados (_mc).
@@ -572,11 +631,21 @@ def train_neural_model_mc(
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
     elif "latent_fm_mc/flow" == model_name:
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
-    else: 
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     if optimizer_state is not None:
         optimizer.load_state_dict(optimizer_state)
+
+    ema_params = _make_ema(model) if ema_decay > 0.0 else None
+    if lr_schedule == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max_epochs, eta_min=lr * 0.01)
+    elif lr_schedule == "sqrt":
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
+            optimizer, lr_lambda=lambda ep: 1.0 / max(1.0, (ep / max(1, max_epochs // 4)) ** 0.5))
+    else:
+        scheduler = None
 
     eval_tensor = torch.FloatTensor(eval_norm).to(device) if eval_norm is not None else None
     eval_cond_tensors = None
@@ -613,6 +682,8 @@ def train_neural_model_mc(
                 loss_dict['total'].backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
+                if ema_params is not None:
+                    _update_ema(ema_params, model, ema_decay)
 
                 bsz = x_batch.shape[0]
                 for k, v in loss_dict.items():
@@ -643,7 +714,8 @@ def train_neural_model_mc(
                 model.train()
                 if out_dir and avg['val_total'] < best_val_loss:
                     best_val_loss = avg['val_total']
-                    torch.save({'model_state_dict': model.state_dict(),
+                    _sd = ema_params if ema_params is not None else model.state_dict()
+                    torch.save({'model_state_dict': _sd,
                                 'optimizer_state_dict': optimizer.state_dict()},
                                os.path.join(out_dir, 'model_best_val.pt'))
                 if stopper.update(avg['val_total']):
@@ -654,10 +726,13 @@ def train_neural_model_mc(
 
             if out_dir and avg['total'] < best_train_loss:
                 best_train_loss = avg['total']
-                torch.save({'model_state_dict': model.state_dict(),
+                _sd = ema_params if ema_params is not None else model.state_dict()
+                torch.save({'model_state_dict': _sd,
                             'optimizer_state_dict': optimizer.state_dict()},
                            os.path.join(out_dir, 'model_best_train.pt'))
 
+            if scheduler is not None:
+                scheduler.step()
             history.append(avg)
 
             if (epoch + 1) % print_every == 0 or epoch == max_epochs - 1:
@@ -785,7 +860,10 @@ def train_model(args):
     val_ratio = getattr(args, "val_ratio", 0.0) or 0.0
     early_stop_patience = getattr(args, "early_stop_patience", 0) or 0
     val_freq = getattr(args, "val_freq", 1) or 1
-    weight_decay = args.weight_decay if getattr(args, "weight_decay", None) is not None else defaults.get("weight_decay", 0.0)
+    weight_decay     = args.weight_decay     if getattr(args, "weight_decay",     None) is not None else defaults.get("weight_decay",     0.0)
+    ema_decay        = args.ema_decay        if getattr(args, "ema_decay",        None) is not None else defaults.get("ema_decay",        0.0)
+    lr_schedule      = args.lr_schedule      if getattr(args, "lr_schedule",      None) is not None else defaults.get("lr_schedule",      "none")
+    input_noise_std  = args.input_noise_std  if getattr(args, "input_noise_std",  None) is not None else defaults.get("input_noise_std",  0.0)
 
     latent_occ = args.latent_occ if args.latent_occ is not None else defaults.get("latent_occ")
     latent_amt = args.latent_amt if args.latent_amt is not None else defaults.get("latent_amt")
@@ -867,6 +945,9 @@ def train_model(args):
         "sigma_sad":               _arch("sigma_sad"),
         "dropout":                 _arch("dropout"),
         "weight_decay":            weight_decay,
+        "ema_decay":               ema_decay,
+        "lr_schedule":             lr_schedule,
+        "input_noise_std":         input_noise_std,
     }
     # Parâmetros específicos do LDM (estágio 2: DDPM)
     if model_name == "ldm":
@@ -1202,6 +1283,9 @@ def train_model(args):
             opt_config=_opt_config,
             early_stop_patience=early_stop_patience,
             val_freq=val_freq,
+            weight_decay=weight_decay,
+            ema_decay=ema_decay,
+            lr_schedule=lr_schedule,
         )
     elif is_temporal:
         history, ms_per_epoch, final_opt_state, interrupted = train_neural_model_temporal(
@@ -1224,6 +1308,9 @@ def train_model(args):
             early_stop_patience=early_stop_patience,
             val_freq=val_freq,
             weight_decay=weight_decay,
+            ema_decay=ema_decay,
+            lr_schedule=lr_schedule,
+            input_noise_std=input_noise_std,
         )
     else:
         history, ms_per_epoch, final_opt_state, interrupted = train_neural_model(
@@ -1242,6 +1329,8 @@ def train_model(args):
             early_stop_patience=early_stop_patience,
             val_freq=val_freq,
             weight_decay=weight_decay,
+            ema_decay=ema_decay,
+            lr_schedule=lr_schedule,
         )
 
     # ── Se interrompido, carrega melhor checkpoint salvo em disco ──────────
@@ -1259,6 +1348,15 @@ def train_model(args):
             print(f"[{model_name}] No checkpoint found — evaluating in-memory state.")
 
     # ── Salva modelo e otimizador ──
+    # If EMA was used and training completed without interruption, reload best EMA
+    # checkpoint so that model.pt also carries EMA params (interrupted path already did this).
+    if ema_decay > 0.0 and not interrupted:
+        _ema_ckpt = os.path.join(out_dir, "model_best_val.pt")
+        if not os.path.exists(_ema_ckpt):
+            _ema_ckpt = os.path.join(out_dir, "model_best_train.pt")
+        if os.path.exists(_ema_ckpt):
+            _c = torch.load(_ema_ckpt, map_location=device, weights_only=False)
+            model.load_state_dict(_c["model_state_dict"])
     model_path = os.path.join(out_dir, "model.pt")
     torch.save({
         'model_state_dict': model.state_dict(),
@@ -1368,6 +1466,18 @@ def main():
                         help="L2 weight decay for Adam optimizer (default: 0.0 — no regularization)")
     parser.add_argument("--dropout", type=float, default=None,
                         help="Dropout rate in coupling MLP layers (flow models; default: 0.0)")
+    parser.add_argument("--ema_decay", type=float, default=None,
+                        help="EMA decay for shadow params saved to checkpoint "
+                             "(0.0=disabled, 0.999 recommended for normalizing flow models). "
+                             "Requires val_ratio > 0 to be meaningful.")
+    parser.add_argument("--lr_schedule", type=str, default=None,
+                        choices=["none", "cosine", "sqrt"],
+                        help="LR decay schedule: none=constant (default), "
+                             "cosine=CosineAnnealingLR to lr*0.01 over max_epochs, "
+                             "sqrt=inverse-sqrt decay after max_epochs//4")
+    parser.add_argument("--input_noise_std", type=float, default=None,
+                        help="Std of Gaussian noise added to training targets (AR models only; "
+                             "noise is clipped to 0 to preserve non-negativity; 0.0=disabled)")
     parser.add_argument("--device", type=str, default="auto",
                         help="'auto', 'cpu', ou 'cuda'")
     parser.add_argument("--data_path", type=str, default="../dados_barragens_btg/inmet_relevant_data.csv",

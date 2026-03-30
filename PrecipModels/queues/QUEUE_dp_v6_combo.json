@@ -1,0 +1,101 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_combo",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "ema_decay": 0.999,
+    "window_size": 7
+  },
+  "entries": [
+    {
+      "_comment": "=== ar_latent_fm: best family (0.079) — dropout + noise together ===",
+      "variant_name": "ar_latent_fm_h64_lat64_do05_ns005_ema999",
+      "model": "ar_latent_fm",
+      "hidden_size": 64,
+      "n_layers": 4,
+      "latent_size": 64,
+      "n_sample_steps": 50,
+      "dropout": 0.05,
+      "input_noise_std": 0.05
+    },
+    {
+      "_comment": "=== ar_flow_match: 2nd best (0.113) — dropout + noise ===",
+      "variant_name": "ar_flow_match_h256_l4_do05_ns005_ema999",
+      "model": "ar_flow_match",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "n_sample_steps": 100,
+      "dropout": 0.05,
+      "input_noise_std": 0.05
+    },
+    {
+      "_comment": "=== ar_ddpm: 3rd best (0.133) — dropout + noise ===",
+      "variant_name": "ar_ddpm_h256_l4_do05_ns005_ema999",
+      "model": "ar_ddpm",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "n_sample_steps": 50,
+      "dropout": 0.05,
+      "input_noise_std": 0.05
+    },
+    {
+      "_comment": "=== ar_flow_match: full stack — dropout + noise + weight_decay ===",
+      "variant_name": "ar_flow_match_h256_l4_do05_ns005_wd1e4_ema999",
+      "model": "ar_flow_match",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "n_sample_steps": 100,
+      "dropout": 0.05,
+      "input_noise_std": 0.05,
+      "weight_decay": 0.0001
+    },
+    {
+      "_comment": "=== ar_latent_fm: full stack — dropout + noise + weight_decay ===",
+      "variant_name": "ar_latent_fm_h64_lat64_do05_ns005_wd1e4_ema999",
+      "model": "ar_latent_fm",
+      "hidden_size": 64,
+      "n_layers": 4,
+      "latent_size": 64,
+      "n_sample_steps": 50,
+      "dropout": 0.05,
+      "input_noise_std": 0.05,
+      "weight_decay": 0.0001
+    },
+    {
+      "_comment": "=== ar_mean_flow: dropout + noise (solid baseline at 0.257) ===",
+      "variant_name": "ar_mean_flow_h256_l4_do05_ns005_ema999",
+      "model": "ar_mean_flow",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "dropout": 0.05,
+      "input_noise_std": 0.05
+    },
+    {
+      "_comment": "=== ar_glow: dropout + noise (best arch from v6_glow) ===",
+      "variant_name": "ar_glow_h64_do05_ns005_ema999",
+      "model": "ar_glow",
+      "hidden_size": 64,
+      "rnn_hidden": 128,
+      "n_steps": 8,
+      "dropout": 0.05,
+      "input_noise_std": 0.05
+    },
+    {
+      "_comment": "=== ar_real_nvp: dropout + noise ===",
+      "variant_name": "ar_rnvp_h256_do05_ns005_ema999",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "dropout": 0.05,
+      "input_noise_std": 0.05
+    }
+  ]
+}

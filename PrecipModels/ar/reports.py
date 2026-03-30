@@ -92,6 +92,7 @@ def write_hyperparameter_sensitivity_report(
     families: dict,
     out_dir: str,
     output_dir: str,
+    variant_dirs: dict = None,
 ):
     hp_keys = ["hidden_size", "n_layers", "n_coupling", "rnn_hidden", "n_steps",
                "latent_size", "gru_hidden"]
@@ -108,7 +109,8 @@ def write_hyperparameter_sensitivity_report(
         lines.append(f"  {'-'*35} {'-'*10}" + "".join(f" {'-'*14}" for _ in hp_keys))
 
         for v in sorted(variants, key=lambda x: scores.get(x, 1.0)):
-            cfg_path = Path(output_dir) / v / "config.json"
+            from ar.loader import _resolve_model_dir
+            cfg_path = _resolve_model_dir(v, output_dir, variant_dirs) / "config.json"
             cfg = {}
             if cfg_path.exists():
                 with open(cfg_path) as f:

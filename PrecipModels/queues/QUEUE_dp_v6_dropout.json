@@ -1,0 +1,159 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_dropout",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "ema_decay": 0.999,
+    "window_size": 7
+  },
+  "entries": [
+    {
+      "_comment": "=== ar_flow_match: dropout sweep (best composite 0.113) ===",
+      "variant_name": "ar_flow_match_h256_l4_do05_ema999",
+      "model": "ar_flow_match",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "n_sample_steps": 100,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_flow_match_h256_l4_do10_ema999",
+      "model": "ar_flow_match",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "n_sample_steps": 100,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_mean_flow: dropout sweep (best composite 0.257) ===",
+      "variant_name": "ar_mean_flow_h256_l4_do05_ema999",
+      "model": "ar_mean_flow",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_mean_flow_h256_l4_do10_ema999",
+      "model": "ar_mean_flow",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_flow_map: dropout sweep (best composite 0.308) ===",
+      "variant_name": "ar_flow_map_h64_l2_do05_ema999",
+      "model": "ar_flow_map",
+      "hidden_size": 64,
+      "n_layers": 2,
+      "rnn_hidden": 32,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_flow_map_h64_l2_do10_ema999",
+      "model": "ar_flow_map",
+      "hidden_size": 64,
+      "n_layers": 2,
+      "rnn_hidden": 32,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_latent_fm: dropout sweep (best composite 0.079) ===",
+      "variant_name": "ar_latent_fm_h64_lat64_do05_ema999",
+      "model": "ar_latent_fm",
+      "hidden_size": 64,
+      "n_layers": 4,
+      "latent_size": 64,
+      "n_sample_steps": 50,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_latent_fm_h64_lat64_do10_ema999",
+      "model": "ar_latent_fm",
+      "hidden_size": 64,
+      "n_layers": 4,
+      "latent_size": 64,
+      "n_sample_steps": 50,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_ddpm: dropout sweep (best composite 0.133) ===",
+      "variant_name": "ar_ddpm_h256_l4_do05_ema999",
+      "model": "ar_ddpm",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "n_sample_steps": 50,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_ddpm_h256_l4_do10_ema999",
+      "model": "ar_ddpm",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "n_sample_steps": 50,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_vae: dropout sweep (best composite 0.103) ===",
+      "variant_name": "ar_vae_h128_lat8_do05_ema999",
+      "model": "ar_vae",
+      "hidden_size": 128,
+      "latent_size": 8,
+      "gru_hidden": 128,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_vae_h128_lat8_do10_ema999",
+      "model": "ar_vae",
+      "hidden_size": 128,
+      "latent_size": 8,
+      "gru_hidden": 128,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_glow: dropout sweep (coupling-layer dropout, best arch from v6_glow) ===",
+      "variant_name": "ar_glow_h64_w30_do05_ema999",
+      "model": "ar_glow",
+      "hidden_size": 64,
+      "rnn_hidden": 128,
+      "n_steps": 8,
+      "window_size": 30,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_glow_h64_w30_do10_ema999",
+      "model": "ar_glow",
+      "hidden_size": 64,
+      "rnn_hidden": 128,
+      "n_steps": 8,
+      "window_size": 30,
+      "dropout": 0.1
+    },
+    {
+      "_comment": "=== ar_real_nvp: dropout sweep (coupling-layer dropout) ===",
+      "variant_name": "ar_rnvp_h256_w30_do05_ema999",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "window_size": 30,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_rnvp_h256_w30_do10_ema999",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "window_size": 30,
+      "dropout": 0.1
+    }
+  ]
+}

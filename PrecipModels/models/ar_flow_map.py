@@ -29,6 +29,7 @@ Variants:
   ar_flow_map_ms    — multi-step refinement (n_steps=10)
   ar_flow_map_sd    — LSD auxiliary loss (derivative matching)
   ar_flow_map_res   — residual parameterization: output = z_s + (t-s)*MLP(...)
+  ar_flow_map_psd   — PSD self-distillation (semigroup consistency)
 
 Residual variant (ar_flow_map_res):
   Standard position prediction collapses to output ≈ 0 (conditional mean) on sparse
@@ -36,6 +37,12 @@ Residual variant (ar_flow_map_res):
   forces output = z_s + (t-s)*delta, so even if delta→0 the output tracks z_s.
   This is structurally equivalent to a single Euler step of a velocity model.
   use_residual=True must be saved to config.json for correct checkpoint loading.
+
+PSD variant (ar_flow_map_psd):
+  Enforces the semigroup property: φ(s,t,x) = φ(u,t, φ(s,u,x)).
+  Samples ordered s<=u<=t (midpoint u=(s+t)/2) and trains the direct
+  prediction φ(z_s,s,t) to match the stopgrad-composed φ(φ(z_s,s,u),u,t).
+  psd_weight=0.0 disables this (backward compat); use 0.5 for new runs.
 """
 
 import math
@@ -55,12 +62,16 @@ from models.conditioning import ConditioningBlock, DEFAULT_CATEGORICALS, DEFAULT
 
 class _FlowMapMLP(nn.Module):
     """Phi_theta: [z_s(S) || s_emb(T) || t_emb(T) || h(H)] → z_t(S)"""
-    def __init__(self, data_dim, t_embed_dim, rnn_hidden, cond_dim, hidden=256, n_layers=4):
+    def __init__(self, data_dim, t_embed_dim, rnn_hidden, cond_dim, hidden=256, n_layers=4, dropout=0.0):
         super().__init__()
         in_dim = data_dim + 2 * t_embed_dim + rnn_hidden + cond_dim
         layers = [nn.Linear(in_dim, hidden), nn.SiLU()]
+        if dropout > 0.0:
+            layers.append(nn.Dropout(dropout))
         for _ in range(n_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
         layers.append(nn.Linear(hidden, data_dim))
         self.net = nn.Sequential(*layers)
 
@@ -76,6 +87,8 @@ class ARFlowMap(BaseModel):
                  ayf_weight: float = 0.0,
                  ayf_delta_t: float = 0.05,
                  use_residual: bool = False,
+                 dropout: float = 0.0,
+                 psd_weight: float = 0.0,
                  **kwargs):
         super().__init__()
         self.n_stations   = input_size
@@ -84,13 +97,14 @@ class ARFlowMap(BaseModel):
         self.n_steps      = n_steps
         self.lsd_weight   = lsd_weight
         self.ayf_weight   = ayf_weight
+        self.psd_weight   = psd_weight
         self.ayf_delta_t  = ayf_delta_t
         self.use_residual = use_residual
         self.cond_block  = ConditioningBlock(DEFAULT_CATEGORICALS, DEFAULT_CONTINUOUS)
         self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.t_embed     = SinusoidalEmbedding(t_embed_dim)
-        self.flow_map    = _FlowMapMLP(input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers)
+        self.flow_map    = _FlowMapMLP(input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers, dropout)
         object.__setattr__(self, '_teacher', None)
 
     def set_teacher(self, teacher_model):
@@ -182,8 +196,35 @@ class ARFlowMap(BaseModel):
             v_student = (z_t.detach() - z_t_back) / actual_dt.unsqueeze(-1)
             ayf_loss = F.mse_loss(v_student, v_teacher.detach())
 
-        total = fm_loss + self.lsd_weight * lsd_loss + self.ayf_weight * ayf_loss
-        return {'total': total, 'fm_loss': fm_loss, 'lsd_loss': lsd_loss, 'ayf_loss': ayf_loss}
+        psd_loss = torch.tensor(0.0, device=device)
+        if self.psd_weight > 0.0:
+            # Triangle sampling: ordered s <= t pair
+            a = torch.rand(B, device=device)
+            b_t = torch.rand(B, device=device)
+            s_p = torch.minimum(a, b_t)
+            t_p = torch.maximum(a, b_t)
+            # Midpoint u between s and t
+            u_p = 0.5 * (s_p + t_p)
+
+            z0_p  = torch.randn_like(target)
+            z_s_p = (1 - s_p.unsqueeze(-1)) * z0_p + s_p.unsqueeze(-1) * target
+
+            s_emb_p = self.t_embed(s_p)
+            u_emb_p = self.t_embed(u_p)
+            t_emb_p = self.t_embed(t_p)
+
+            # Direct prediction: φ(z_s, s, t) — gradient flows here
+            z_t_direct = self._phi(z_s_p, s_emb_p, t_emb_p, h_cond, dt=(t_p - s_p))
+
+            # Composed prediction: φ(φ(z_s, s, u), u, t) — full stopgrad on both steps
+            with torch.no_grad():
+                z_u_hat = self._phi(z_s_p, s_emb_p, u_emb_p, h_cond, dt=(u_p - s_p))
+                z_t_composed = self._phi(z_u_hat, u_emb_p, t_emb_p, h_cond, dt=(t_p - u_p))
+
+            psd_loss = F.mse_loss(z_t_direct, z_t_composed)
+
+        total = fm_loss + self.lsd_weight * lsd_loss + self.ayf_weight * ayf_loss + self.psd_weight * psd_loss
+        return {'total': total, 'fm_loss': fm_loss, 'lsd_loss': lsd_loss, 'ayf_loss': ayf_loss, 'psd_loss': psd_loss}
 
     def _generate_sample(self, h_cond, n):
         """Refinement loop: n_steps passes that always feed in-distribution OT-path inputs.

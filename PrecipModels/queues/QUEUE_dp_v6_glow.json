@@ -25,6 +25,20 @@
       "window_size": 60
     },
     {
+      "variant_name": "ar_glow_h64_w3",
+      "window_size": 3
+    },
+    {
+      "variant_name": "ar_glow_h64_w3_do5",
+      "window_size": 3,
+      "dropout": 0.05
+    },
+    {
+      "variant_name": "ar_glow_h64_w3_do10",
+      "window_size": 3,
+      "dropout": 0.1
+    },
+    {
       "_comment": "=== rnn_hidden x window_size cross ===",
       "variant_name": "ar_glow_h64_w30_rnn256",
       "rnn_hidden": 256,

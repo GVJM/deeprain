@@ -1,9 +1,9 @@
 """ar/loader.py — AR model discovery and checkpoint loading."""
 import json
+import os
 from pathlib import Path
 import torch
 import sys
-import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from models import get_model
 
@@ -46,37 +46,103 @@ def _is_ar_dir(d: Path) -> bool:
     return False
 
 
-def discover_ar_models(output_dir: str, selected_families: list = None) -> list:
-    """Scan output dirs that have metrics.json and an AR model config."""
-    base = Path(output_dir)
-    variants = []
-    for d in sorted(base.iterdir()):
-        if d.is_dir() and _is_ar_dir(d) and (d / "metrics.json").exists():
-            if selected_families:
-                for fam in selected_families:
-                    if d.name.startswith(fam) or get_family(d.name, output_dir).startswith(fam):
-                        variants.append(d.name)
-                        break
+def _resolve_model_dir(variant: str, output_dir, variant_dirs=None) -> Path:
+    """Return the directory for *variant*.
+
+    Looks up *variant_dirs* first (populated by recursive discovery); falls
+    back to the flat ``Path(output_dir) / variant`` for backward compat.
+    """
+    if variant_dirs is not None and variant in variant_dirs:
+        return variant_dirs[variant]
+    return Path(output_dir) / variant
+
+
+# Directory names that are never AR model dirs and should not be recursed into.
+_SKIP_DIR_NAMES = frozenset({
+    "comparison_ar", "hyperparameter_sensitivity", "stations",
+    "families", "scenarios", "__pycache__",
+})
+
+
+def _discover_recursive(base: Path) -> "dict[str, Path]":
+    """Walk *base* recursively and return ``{variant_name: absolute_dir}``
+    for every AR model directory found at any depth.
+
+    An AR model directory is any directory that passes ``_is_ar_dir()``.
+    Once found, its own subdirectories are NOT descended into, so
+    ``scenarios/``, family-detail dirs, etc. are never mistaken for models.
+
+    Deduplication: if the same folder name appears more than once, the
+    lexicographically smaller absolute path wins and a warning is printed.
+    """
+    result: "dict[str, Path]" = {}
+
+    for root, dirs, _files in os.walk(str(base)):
+        root_path = Path(root)
+
+        # Determine which subdirs to recurse into vs. claim as AR dirs
+        keep_recursing = []
+        for d_name in sorted(dirs):
+            if d_name.startswith(".") or d_name in _SKIP_DIR_NAMES:
+                continue
+            d_path = root_path / d_name
+            if _is_ar_dir(d_path):
+                # Found an AR model dir — record it, do not recurse inside
+                if d_name in result:
+                    existing = result[d_name]
+                    keep = min(existing, d_path, key=lambda p: str(p))
+                    dropped = d_path if keep == existing else existing
+                    print(f"[discover] duplicate variant '{d_name}': "
+                          f"keeping {keep}  (dropping {dropped})")
+                    result[d_name] = keep
+                else:
+                    result[d_name] = d_path
             else:
-                variants.append(d.name)
-    return variants
+                keep_recursing.append(d_name)
+
+        # Mutate dirs in-place so os.walk only descends into non-AR dirs
+        dirs[:] = keep_recursing
+
+    return result
 
 
-def discover_ar_models_with_checkpoints(output_dir: str) -> list:
-    """Subset of AR models that also have model.pt."""
-    base = Path(output_dir)
-    variants = []
-    for d in sorted(base.iterdir()):
-        if (d.is_dir() and _is_ar_dir(d)
-                and (d / "metrics.json").exists()
-                and (d / "model.pt").exists()):
-            variants.append(d.name)
-    return variants
+def discover_ar_models(
+    output_dir: str,
+    selected_families: list = None,
+) -> "dict[str, Path]":
+    """Recursively scan *output_dir* for AR models that have ``metrics.json``.
+
+    Returns ``{variant_name: absolute_path}`` (sorted by name).
+    Applies *selected_families* filter when provided.
+    """
+    all_dirs = _discover_recursive(Path(output_dir))
+    result: "dict[str, Path]" = {}
+    for name, path in sorted(all_dirs.items()):
+        if not (path / "metrics.json").exists():
+            continue
+        if selected_families:
+            fam = get_family(name, variant_dirs={name: path})
+            if not any(fam.startswith(f) or name.startswith(f)
+                       for f in selected_families):
+                continue
+        result[name] = path
+    return result
 
 
-def get_family(variant_name: str, output_dir: str) -> str:
+def discover_ar_models_with_checkpoints(output_dir: str) -> "dict[str, Path]":
+    """Subset of AR models (recursive) that also have ``model.pt``."""
+    all_dirs = _discover_recursive(Path(output_dir))
+    return {
+        name: path
+        for name, path in sorted(all_dirs.items())
+        if (path / "metrics.json").exists() and (path / "model.pt").exists()
+    }
+
+
+def get_family(variant_name: str, output_dir: str = None,
+               variant_dirs: "dict[str, Path]" = None) -> str:
     """Read config.json 'model' field; fall back to longest prefix match."""
-    cfg_path = Path(output_dir) / variant_name / "config.json"
+    cfg_path = _resolve_model_dir(variant_name, output_dir, variant_dirs) / "config.json"
     if cfg_path.exists():
         with open(cfg_path) as f:
             cfg = json.load(f)
@@ -90,10 +156,19 @@ def get_family(variant_name: str, output_dir: str) -> str:
     return variant_name
 
 
-def load_all_metrics(variants: list, output_dir: str) -> dict:
+def load_all_metrics(variants, output_dir: str = None,
+                     variant_dirs: "dict[str, Path]" = None) -> dict:
+    """Load metrics.json for each variant.
+
+    *variants* may be a ``list[str]`` or a ``dict[str, Path]`` (as returned
+    by ``discover_ar_models``).  In the dict case, *output_dir* is ignored.
+    """
+    if isinstance(variants, dict):
+        variant_dirs = variants
+        variants = list(variants.keys())
     all_m = {}
     for v in variants:
-        path = Path(output_dir) / v / "metrics.json"
+        path = _resolve_model_dir(v, output_dir, variant_dirs) / "metrics.json"
         if path.exists():
             with open(path) as f:
                 all_m[v] = json.load(f)
@@ -102,21 +177,24 @@ def load_all_metrics(variants: list, output_dir: str) -> dict:
     return all_m
 
 
-def _load_config(variant: str, output_dir: str) -> dict:
-    path = Path(output_dir) / variant / "config.json"
+def _load_config(variant: str, output_dir: str = None,
+                 variant_dirs: "dict[str, Path]" = None) -> dict:
+    path = _resolve_model_dir(variant, output_dir, variant_dirs) / "config.json"
     if not path.exists():
         return {}
     with open(path) as f:
         return json.load(f)
 
 
-def load_ar_model(variant: str, output_dir: str, input_size: int, device: torch.device):
+def load_ar_model(variant: str, output_dir: str = None, input_size: int = 0,
+                  device: torch.device = None,
+                  variant_dirs: "dict[str, Path]" = None):
     """
     Load a trained AR model checkpoint.
     Handles all AR families including LSTM variants.
     """
-    model_dir = Path(output_dir) / variant
-    cfg = _load_config(variant, output_dir)
+    model_dir = _resolve_model_dir(variant, output_dir, variant_dirs)
+    cfg = _load_config(variant, output_dir, variant_dirs)
     model_class = cfg.get("model", variant)
 
     # Prefer best-val checkpoint (written when val_ratio > 0); fall back to final model.pt

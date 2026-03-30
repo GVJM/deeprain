@@ -38,12 +38,16 @@ from models.conditioning import ConditioningBlock, DEFAULT_CATEGORICALS, DEFAULT
 
 class _MeanFlowMLP(nn.Module):
     """u_theta: [z_t(S) || r_emb(T) || t_emb(T) || h(H)] → velocity(S)"""
-    def __init__(self, data_dim, t_embed_dim, rnn_hidden, cond_dim, hidden=256, n_layers=4):
+    def __init__(self, data_dim, t_embed_dim, rnn_hidden, cond_dim, hidden=256, n_layers=4, dropout=0.0):
         super().__init__()
         in_dim = data_dim + 2 * t_embed_dim + rnn_hidden + cond_dim
         layers = [nn.Linear(in_dim, hidden), nn.SiLU()]
+        if dropout > 0.0:
+            layers.append(nn.Dropout(dropout))
         for _ in range(n_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
         layers.append(nn.Linear(hidden, data_dim))
         self.net = nn.Sequential(*layers)
 
@@ -59,6 +63,7 @@ class ARMeanFlow(BaseModel):
                  improved_interval_sampling: bool = False,
                  mu_sad: float = 0.0,
                  sigma_sad: float = 1.0,
+                 dropout: float = 0.0,
                  **kwargs):
         super().__init__()
         self.n_stations  = input_size
@@ -74,7 +79,7 @@ class ARMeanFlow(BaseModel):
         self.cond_dim    = self.cond_block.total_dim
         self.rnn         = _make_rnn(rnn_type, input_size, rnn_hidden)
         self.t_embed     = SinusoidalEmbedding(t_embed_dim)
-        self.vel_net     = _MeanFlowMLP(input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers)
+        self.vel_net     = _MeanFlowMLP(input_size, t_embed_dim, rnn_hidden, self.cond_dim, hidden_size, n_layers, dropout)
         # Backward-compat: remap old checkpoints saved with key prefix "velocity."
         self._register_load_state_dict_pre_hook(self._remap_old_velocity_keys)
 

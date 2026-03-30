@@ -1,0 +1,94 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_ema_ar",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "ema_decay": 0.999,
+    "window_size": 7
+  },
+  "entries": [
+    {
+      "_comment": "=== ar_ddpm: best composite (0.133) — VP-SDE diffusion, EMA standard for diffusion models ===",
+      "variant_name": "ar_ddpm_h256_l4_ema999",
+      "model": "ar_ddpm",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "n_sample_steps": 50
+    },
+    {
+      "_comment": "=== ar_flow_match: best composite (0.113) — flow matching, EMA smooths velocity field estimates ===",
+      "variant_name": "ar_flow_match_h256_l4_ema999",
+      "model": "ar_flow_match",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "n_sample_steps": 100
+    },
+    {
+      "_comment": "=== ar_latent_fm: best composite (0.079) — latent flow matching ===",
+      "variant_name": "ar_latent_fm_h64_lat64_ema999",
+      "model": "ar_latent_fm",
+      "hidden_size": 64,
+      "n_layers": 4,
+      "latent_size": 64,
+      "n_sample_steps": 50
+    },
+    {
+      "_comment": "=== ar_flow_map_ms: best composite (0.080) — multi-step flow map ===",
+      "variant_name": "ar_flow_map_ms_h128_l4_ema999",
+      "model": "ar_flow_map_ms",
+      "hidden_size": 128,
+      "n_layers": 4,
+      "rnn_hidden": 64,
+      "n_steps": 10
+    },
+    {
+      "_comment": "=== ar_flow_map_res: best composite (0.080) — residual flow map, n_steps=5 ===",
+      "variant_name": "ar_flow_map_res_h256_l4_s5_ema999",
+      "model": "ar_flow_map_res",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "n_steps": 5,
+      "use_residual": true
+    },
+    {
+      "_comment": "=== ar_flow_map: best in family (0.308) — base flow map, small arch ===",
+      "variant_name": "ar_flow_map_h64_l2_ema999",
+      "model": "ar_flow_map",
+      "hidden_size": 64,
+      "n_layers": 2,
+      "rnn_hidden": 32
+    },
+    {
+      "_comment": "=== ar_mean_flow: base variant, best composite (0.257) ===",
+      "variant_name": "ar_mean_flow_h256_l4_ema999",
+      "model": "ar_mean_flow",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128
+    },
+    {
+      "_comment": "=== ar_mean_flow_ayfm: best composite (0.284) — AYF + improved interval sampling ===",
+      "variant_name": "ar_mean_flow_ayfm_h256_l6_ema999",
+      "model": "ar_mean_flow_ayfm",
+      "hidden_size": 256,
+      "n_layers": 6,
+      "rnn_hidden": 128
+    },
+    {
+      "_comment": "=== ar_vae: best composite (0.103) — KL already regularizes, EMA smooths checkpoint noise ===",
+      "variant_name": "ar_vae_h128_lat8_ema999",
+      "model": "ar_vae",
+      "hidden_size": 128,
+      "latent_size": 8,
+      "gru_hidden": 128
+    }
+  ]
+}

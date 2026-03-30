@@ -18,9 +18,14 @@ python train.py --model <name>
 python train.py --model vae --max_epochs 200 --lr 0.001 --latent_size 64
 python train.py --model hurdle_simple --lr 0.0001 --name hs_lr0001
 
-# AR/temporal models — require SABESP data path
-python train.py --model ar_vae --data_path ../dados_sabesp/dayprecip.dat --max_epochs 300
-python train.py --model ar_flow_match --data_path ../dados_sabesp/dayprecip.dat
+# AR/temporal models — require SABESP data path (data_precip.dat = 17 stations, most experiments)
+python train.py --model ar_vae --data_path ../dados_sabesp/data_precip.dat --max_epochs 300
+python train.py --model ar_flow_match --data_path ../dados_sabesp/data_precip.dat
+
+# AR regularization flags (all default to 0/disabled for backward compat)
+python train.py --model ar_flow_match --data_path ../dados_sabesp/data_precip.dat \
+  --ema_decay 0.999 --dropout 0.05 --input_noise_std 0.05 --weight_decay 1e-4 \
+  --lr_schedule cosine
 
 # Train all models + compare
 python compare.py
@@ -31,7 +36,7 @@ python compare.py --skip_training                      # re-run analysis on save
 python compare_ar.py --skip_rollouts                          # Tier 1 only (<1 min, no GPU)
 python compare_ar.py --models ar_vae ar_mean_flow --n_days 30 --n_scenarios 5  # quick Tier 2 test
 python compare_ar.py --n_days 365 --n_scenarios 50            # full run
-python compare_ar.py --skip_rollouts --output_dir ./outputs_sabesp  # if AR models live in outputs_sabesp/
+python compare_ar.py --skip_rollouts --output_dir results/data_precip  # discovers models in all subdirs recursively
 python compare_ar.py --n_workers 4 --n_days 365 --n_scenarios 50    # parallel Tier 2 rollouts (multi-GPU)
 python compare_ar.py --force_rollouts --models ar_vae               # recompute rollouts even if cached
 python compare_ar.py --top_n_per_family 3                           # keep only top-3 per family in charts
@@ -122,7 +127,9 @@ Entry-level fields override defaults. `output_dir` is required (no silent fallba
 **Autoregressive (`ar_*`):**
 `ar_vae`, `ar_vae_v2`, `ar_flow_match`, `ar_latent_fm`
 `ar_real_nvp`, `ar_real_nvp_lstm`, `ar_glow`, `ar_glow_lstm`
-`ar_mean_flow`, `ar_mean_flow_lstm`, `ar_mean_flow_v2`, `ar_flow_map`, `ar_flow_map_lstm`, `ar_flow_map_ms`
+`ar_mean_flow`, `ar_mean_flow_lstm`, `ar_mean_flow_v2`, `ar_mean_flow_ayfm`
+`ar_flow_map`, `ar_flow_map_lstm`, `ar_flow_map_ms`, `ar_flow_map_sd`, `ar_flow_map_res`
+`ar_ddpm`, `ar_ddpm_lstm`
 
 **Temporal/Hurdle-Temporal:**
 `hurdle_temporal`
@@ -163,6 +170,10 @@ PrecipModels/
 │   ├── __init__.py     # model registry + get_model()
 │   ├── conditioning.py # monthly conditioning utils
 │   └── *.py            # individual model files
+├── ar/                 # AR model utilities
+│   ├── loader.py       # load_ar_model() — reads config.json + checkpoint
+│   ├── plots.py        # AR-specific plotting helpers
+│   └── reports.py      # Tier 1/2 report generation
 └── outputs/            # training artifacts (gitignored)
 
 dados/                  # INMET data (relative to repo root)
@@ -187,7 +198,7 @@ dados_barragens_btg/    # BTG dam data
 - **HurdleSimple direct use:** call `fit_copulas()` before generating
 - **Working directory:** data paths break if not run from `PrecipModels/`
 - `KMP_DUPLICATE_LIB_OK=TRUE` is set automatically in train.py (Intel MKL conflict)
-- **AR models require SABESP path:** default data path is INMET; always pass `--data_path ../dados_sabesp/dayprecip.dat` for AR/temporal models
+- **AR models require SABESP path:** default data path is INMET; always pass `--data_path ../dados_sabesp/data_precip.dat` for AR/temporal models (17-station dataset; use `dayprecip.dat` only for older 91-station experiments)
 - **ARGlow inverse cache:** `_InvLinearLU.inverse()` caches `W⁻¹`; cleared on `train()`. Without it, evaluation does 8000 matrix inversions instead of 8
 - **`compare_ar.py` output_dir:** AR checkpoints default to `./outputs`; always pass `--output_dir` matching where models actually live (e.g., `--output_dir results/data_precip/merge`). Also pass `--data_path` matching the training dataset or Tier 2 rollouts will crash with a shape mismatch.
 - **st_362 outlier station:** Wasserstein 50–100× higher than all other 91 SABESP stations across every model. Excluded from per-station win ranking but shown in heatmaps. Constant `OUTLIER_STATION` in `compare_ar.py`.
@@ -202,3 +213,10 @@ dados_barragens_btg/    # BTG dam data
 - **New AR models need entries in BOTH `ARCH_DEFAULTS` (train.py) AND `MODEL_DEFAULTS.json`:** `ARCH_DEFAULTS` controls architecture hyperparameters; `MODEL_DEFAULTS.json` controls training hyperparameters (lr, batch_size, max_epochs, normalization_mode). Missing either causes `KeyError: 'model_name'` at line ~769 in train.py.
 - **`ar_flow_map_res` uses residual parameterization:** output = `z_s + (t-s) * MLP(...)` instead of `MLP(...)`. This fixes stochastic collapse (MSE → conditional mean ≈ 0 on sparse data) by forcing the output to depend on `z_s` structurally. `use_residual=True` must be in `config.json` for checkpoint loading — it's a bool param handled in `ar/loader.py` and `evaluate.py` `_BOOL_PARAMS`.
 - **`ar_ddpm` teacher model:** VP-SDE with v-prediction and continuous time. Implements `velocity()` interface for AYF distillation compatibility. Trained via `_TEMPORAL_MODELS` path. Schedule: β(t) = 0.1 + 19.9t, α̅(t) = exp(-(0.1t + 9.95t²)). Sampling: DDIM deterministic, t=1→0 in n_sample_steps steps.
+- **EMA checkpoint transparency:** EMA saves the averaged model's `state_dict` directly into `model.pt` — no wrapper object. `evaluate.py` and `ar/loader.py` load it identically to non-EMA checkpoints; no special handling needed at load time.
+- **Dropout backward compatibility:** AR model dropout uses `if dropout > 0.0` guards before inserting `nn.Dropout` layers. This means `dropout=0.0` checkpoints have no Dropout keys in `state_dict` — existing checkpoints load identically. Never use `nn.Dropout(0.0)` unconditionally (adds spurious keys).
+- **Windows conda multiline scripts:** `conda run -n pytorch_env python -c "..."` fails with multiline scripts on Windows. Write to a temp `.py` file, run it, then delete it.
+- **`compare_ar.py` recursive discovery:** `discover_ar_models()` now recurses into subdirs — point `--output_dir` at any ancestor folder (e.g. `results/data_precip/`) and it finds models in `outputs_v6_glow/`, `outputs_v6_latentfm/`, etc. Dirs named `comparison_ar`, `scenarios`, `families`, `stations` are skipped automatically (`_SKIP_DIR_NAMES` in `ar/loader.py`). Add new output-only dir names there to keep them out of discovery.
+- **`discover_ar_models()` returns `dict[str, Path]`** (not `list[str]`): maps variant name → absolute dir. Callers that previously iterated a list still work (dict iteration yields keys), but any code that builds `Path(output_dir) / variant` must now use `_resolve_model_dir(variant, output_dir, variant_dirs)` from `ar/loader.py` instead.
+- **`variant_dirs` param in `ar/` functions:** `load_ar_model`, `get_family`, `load_all_metrics`, `run_rollout`, `recompute_tier1_metrics`, and the affected plot/report functions all accept `variant_dirs: dict[str, Path] = None`. New functions that load model files should follow the same pattern to support non-flat layouts.
+- **`--models` filter warns on missing names:** previously bypassed discovery silently; now discovers recursively first then filters, printing `[warn]` for any name not found under `--output_dir`.

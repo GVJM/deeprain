@@ -70,6 +70,7 @@ from data_utils import load_data, SABESP_DATA_PATH
 from ar import (
     AR_FAMILIES, OUTLIER_STATION, OUTLIER_MODELS,
     TIER2_METRICS, COMBINED_TIER2_METRICS,
+    _resolve_model_dir,
     discover_ar_models, discover_ar_models_with_checkpoints, get_family,
     load_all_metrics, _load_config, load_ar_model,
     recompute_tier1_metrics, run_rollout, compute_tier2_metrics,
@@ -105,20 +106,23 @@ def _rollout_worker(args_tuple) -> tuple:
     On Windows spawn, each worker process imports the module fresh and args_global
     is None. All required data must be received via args_tuple.
     """
-    (variant, output_dir, data_norm, std, data_raw, obs_months,
+    (variant, model_dir_str, data_norm, std, data_raw, obs_months,
      n_days, n_scenarios, device_str, force) = args_tuple
 
+    from pathlib import Path as _Path
     device = torch.device(device_str)
+    _vdirs = {variant: _Path(model_dir_str)}
     try:
         sc_mm = run_rollout(
             variant=variant,
-            output_dir=output_dir,
+            output_dir=model_dir_str,
             data_norm=data_norm,
             std=std,
             n_days=n_days,
             n_scenarios=n_scenarios,
             device=device,
             force=force,
+            variant_dirs=_vdirs,
         )
         if sc_mm is None:
             return variant, None
@@ -187,11 +191,16 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[compare_ar] Device: {device}")
 
-    # ── Discover models ──
+    # ── Discover models (recursive) ──
+    all_variant_dirs = discover_ar_models(args.output_dir, args.families)
     if args.models:
-        tier1_variants = args.models
+        missing = [m for m in args.models if m not in all_variant_dirs]
+        if missing:
+            print(f"[compare_ar] [warn] --models not found under {args.output_dir}: {missing}")
+        variant_dirs = {m: all_variant_dirs[m] for m in args.models if m in all_variant_dirs}
     else:
-        tier1_variants = discover_ar_models(args.output_dir, args.families)
+        variant_dirs = all_variant_dirs
+    tier1_variants = list(variant_dirs.keys())
     print(f"[compare_ar] Tier 1 variants: {len(tier1_variants)}")
 
     if not tier1_variants:
@@ -206,16 +215,18 @@ def main():
             data_path=args.data_path,
             n_samples=args.n_samples,
             device=device,
+            variant_dirs=variant_dirs,
         )
 
     # ── Load all metrics ──
-    all_metrics = load_all_metrics(tier1_variants, args.output_dir)
+    all_metrics = load_all_metrics(tier1_variants, args.output_dir, variant_dirs=variant_dirs)
     if not all_metrics:
         print("[compare_ar] No metrics.json found.")
         return
 
     # ── Family assignment ──
-    families = {v: get_family(v, args.output_dir) for v in all_metrics}
+    families = {v: get_family(v, args.output_dir, variant_dirs=variant_dirs)
+                for v in all_metrics}
 
     # ── Composite score ──
     scores, normalized = compute_composite(all_metrics)
@@ -233,7 +244,8 @@ def main():
         print(f"\n Faimilies: {set(families.values())}")
         write_family_summary(all_metrics, scores, families, out_dir)
         write_hyperparameter_sensitivity_report(all_metrics, scores, families, out_dir,
-                                                output_dir=args.output_dir)
+                                                output_dir=args.output_dir,
+                                                variant_dirs=variant_dirs)
         write_metrics_csv(all_metrics, {}, scores, families, out_dir)
 
         # Filter Tier 1 variant-level plots if --top_n_per_family set
@@ -263,7 +275,8 @@ def main():
         plot_heatmap(t1_plot_metrics, t1_plot_normalized, out_dir)
         # plot_family_grouped_bars(t1_plot_metrics, families, out_dir)
         plot_hyperparameter_sensitivity(t1_plot_metrics, families, t1_plot_scores, out_dir,
-                                        output_dir=args.output_dir)
+                                        output_dir=args.output_dir,
+                                        variant_dirs=variant_dirs)
         # plot_training_loss_overlay(t1_plot_variants, args.output_dir, out_dir)
 
         # ── Per-Station Analysis (Tier 1) ──
@@ -291,12 +304,13 @@ def main():
         print(f"\n[compare_ar] Done. Output: {out_dir}")
         return
 
-    # Discover models with checkpoints
+    # Discover models with checkpoints (reuse already-discovered variant_dirs)
+    all_ckpt_dirs = discover_ar_models_with_checkpoints(args.output_dir)
     if args.models:
-        ckpt_variants = [v for v in args.models
-                         if (Path(args.output_dir) / v / "model.pt").exists()]
+        ckpt_variant_dirs = {m: all_ckpt_dirs[m] for m in args.models if m in all_ckpt_dirs}
     else:
-        ckpt_variants = discover_ar_models_with_checkpoints(args.output_dir)
+        ckpt_variant_dirs = all_ckpt_dirs
+    ckpt_variants = list(ckpt_variant_dirs.keys())
     print(f"\n[compare_ar] === Tier 2: Scenario rollouts for {len(ckpt_variants)} models ===")
 
     # Load data once
@@ -338,6 +352,7 @@ def main():
                 n_scenarios=args.n_scenarios,
                 device=device,
                 force=args.force_rollouts,
+                variant_dirs=ckpt_variant_dirs,
             )
             if sc_mm is None:
                 continue
@@ -352,7 +367,7 @@ def main():
         print(f"[compare_ar] Parallel rollouts: {args.n_workers} workers, "
               f"{len(ckpt_variants)} models")
         worker_args = [
-            (v, args.output_dir, data_norm, std, data_raw, obs_months,
+            (v, str(ckpt_variant_dirs[v]), data_norm, std, data_raw, obs_months,
              args.n_days, args.n_scenarios, str(device), args.force_rollouts)
             for v in ckpt_variants
         ]
@@ -371,8 +386,7 @@ def main():
                 # Save metrics — do this before np.load so t2 is preserved even on cache failure
                 tier2_metrics[variant] = t2
                 # Load sc_mm from cache (run_rollout saves it; cache-hit path reuses existing file)
-                cache_path = (Path(args.output_dir) / variant
-                              / "scenarios" / "scenarios.npy")
+                cache_path = (ckpt_variant_dirs[variant] / "scenarios" / "scenarios.npy")
                 try:
                     sc_mm = np.load(str(cache_path))[:args.n_scenarios, :args.n_days, :]
                 except Exception as exc:
@@ -429,8 +443,10 @@ def main():
         plot_spell_length_comparison(plot_scenarios, data_raw, out_dir, families=families)
         plot_monthly_precip(plot_scenarios, data_raw, obs_months, out_dir, families=families,
                             start_month=sc_start_month)
-        plot_spread_envelopes(plot_scenarios, data_raw, out_dir, output_dir=args.output_dir)
-        plot_transition_probs(plot_scenarios, data_raw, out_dir, output_dir=args.output_dir)
+        plot_spread_envelopes(plot_scenarios, data_raw, out_dir, output_dir=args.output_dir,
+                              variant_dirs=variant_dirs)
+        plot_transition_probs(plot_scenarios, data_raw, out_dir, output_dir=args.output_dir,
+                              variant_dirs=variant_dirs)
         plot_return_period(plot_scenarios, data_raw, out_dir, families=families)
         plot_rx5day_distribution(plot_scenarios, data_raw, out_dir, families=families)
         plot_rxnday_multi(plot_scenarios, data_raw, out_dir, families=families)

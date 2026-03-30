@@ -253,6 +253,7 @@ def plot_hyperparameter_sensitivity(
     scores: dict,
     out_dir: str,
     output_dir: str,
+    variant_dirs: dict = None,
 ):
     hp_dir = os.path.join(out_dir, "hyperparameter_sensitivity")
     os.makedirs(hp_dir, exist_ok=True)
@@ -267,7 +268,8 @@ def plot_hyperparameter_sensitivity(
         # Collect config params for each variant
         rows = []
         for v in variants:
-            cfg_path = Path(output_dir) / v / "config.json"
+            from ar.loader import _resolve_model_dir
+            cfg_path = _resolve_model_dir(v, output_dir, variant_dirs) / "config.json"
             cfg = {}
             if cfg_path.exists():
                 with open(cfg_path) as f:
@@ -310,13 +312,16 @@ def plot_hyperparameter_sensitivity(
         print(f"  [plot] {out_path}")
 
 
-def plot_training_loss_overlay(variants: list, output_dir: str, out_dir: str):
+def plot_training_loss_overlay(variants: list, output_dir: str, out_dir: str,
+                               variant_dirs: dict = None):
     fam_colors = _family_colors(AR_FAMILIES)
     fig, ax = plt.subplots(figsize=(12, 6))
     plotted = False
 
+    from ar.loader import _resolve_model_dir
     for variant in variants:
-        history_path = Path(output_dir) / variant / "training_history.json"
+        vdir = _resolve_model_dir(variant, output_dir, variant_dirs)
+        history_path = vdir / "training_history.json"
         if not history_path.exists():
             continue
         with open(history_path) as f:
@@ -334,7 +339,7 @@ def plot_training_loss_overlay(variants: list, output_dir: str, out_dir: str):
             losses = hist.get("train_loss") or hist.get("loss") or []
         if not losses:
             continue
-        cfg_path = Path(output_dir) / variant / "config.json"
+        cfg_path = vdir / "config.json"
         fam = variant
         if cfg_path.exists():
             with open(cfg_path) as f:
@@ -675,6 +680,7 @@ def plot_spread_envelopes(
     out_dir: str,
     top_n: int = 5,
     output_dir: str = None,
+    variant_dirs: dict = None,
 ):
     if not scenarios_by_model:
         return
@@ -696,8 +702,9 @@ def plot_spread_envelopes(
         p5, p25, p50, p75, p95 = np.percentile(sc_daily, [5, 25, 50, 75, 95], axis=0)
 
         fam = variant
-        if output_dir is not None:
-            cfg_path = Path(output_dir) / variant / "config.json"
+        if output_dir is not None or variant_dirs is not None:
+            from ar.loader import _resolve_model_dir
+            cfg_path = _resolve_model_dir(variant, output_dir, variant_dirs) / "config.json"
             if cfg_path.exists():
                 with open(cfg_path) as f:
                     fam = json.load(f).get("model", variant)
@@ -732,6 +739,7 @@ def plot_transition_probs(
     out_dir: str,
     threshold: float = 0.1,
     output_dir: str = None,
+    variant_dirs: dict = None,
 ):
     def _trans_probs(data: np.ndarray):
         wet = data > threshold
@@ -761,8 +769,9 @@ def plot_transition_probs(
         sc_mm = scenarios_by_model[variant]
         sc_tp = np.mean([_trans_probs(sc_mm[i]) for i in range(sc_mm.shape[0])], axis=0)
         fam = variant
-        if output_dir is not None:
-            cfg_path = Path(output_dir) / variant / "config.json"
+        if output_dir is not None or variant_dirs is not None:
+            from ar.loader import _resolve_model_dir
+            cfg_path = _resolve_model_dir(variant, output_dir, variant_dirs) / "config.json"
             if cfg_path.exists():
                 with open(cfg_path) as f:
                     fam = json.load(f).get("model", variant)

@@ -11,7 +11,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from data_utils import load_data
-from ar.loader import load_ar_model
+from ar.loader import load_ar_model, _resolve_model_dir
 import metrics as M
 
 
@@ -48,6 +48,7 @@ def recompute_tier1_metrics(
     data_path: str,
     n_samples: int,
     device: torch.device,
+    variant_dirs: dict = None,
 ) -> None:
     """Re-evaluate Tier 1 metrics with more samples; overwrites metrics.json in-place.
 
@@ -69,9 +70,10 @@ def recompute_tier1_metrics(
     input_size = data_raw.shape[1]
 
     for variant in variants:
-        metrics_path = os.path.join(output_dir, variant, "metrics.json")
-        config_path  = os.path.join(output_dir, variant, "config.json")
-        ckpt_path    = os.path.join(output_dir, variant, "model.pt")
+        model_dir    = _resolve_model_dir(variant, output_dir, variant_dirs)
+        metrics_path = str(model_dir / "metrics.json")
+        config_path  = str(model_dir / "config.json")
+        ckpt_path    = str(model_dir / "model.pt")
         if not os.path.exists(ckpt_path):
             print(f"  [{variant}] No checkpoint — skipping")
             continue
@@ -105,7 +107,8 @@ def recompute_tier1_metrics(
                else np.mean(train_raw, axis=0, keepdims=True))
 
         try:
-            model = load_ar_model(variant, output_dir, input_size=input_size, device=device)
+            model = load_ar_model(variant, output_dir, input_size=input_size, device=device,
+                                  variant_dirs=variant_dirs)
         except Exception as e:
             print(f"  [{variant}] Load error: {e} — skipping")
             continue
@@ -144,12 +147,14 @@ def run_rollout(
     n_scenarios: int,
     device: torch.device,
     force: bool = False,
+    variant_dirs: dict = None,
 ) -> np.ndarray:
     """
     Generate scenarios for one model. Returns (n_sc, n_days, S) in mm/dia.
-    Caches to outputs/<variant>/scenarios/scenarios.npy.
+    Caches to <model_dir>/scenarios/scenarios.npy.
     """
-    cache_path = Path(output_dir) / variant / "scenarios" / "scenarios.npy"
+    model_dir  = _resolve_model_dir(variant, output_dir, variant_dirs)
+    cache_path = model_dir / "scenarios" / "scenarios.npy"
 
     if not force and cache_path.exists():
         cached = np.load(str(cache_path))
@@ -159,7 +164,8 @@ def run_rollout(
         print(f"  [rollout] {variant}: cache shape {cached.shape} too small, re-running")
 
     try:
-        model = load_ar_model(variant, output_dir, input_size=data_norm.shape[1], device=device)
+        model = load_ar_model(variant, output_dir, input_size=data_norm.shape[1], device=device,
+                              variant_dirs=variant_dirs)
     except Exception as e:
         print(f"  [rollout] {variant}: load failed — {e}")
         return None

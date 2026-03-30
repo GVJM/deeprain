@@ -71,6 +71,7 @@ class ARVAE(BaseModel):
         latent_size: int = 64,
         hidden_size: int = 256,
         occ_weight: float = 0.0,    # new: default 0 = disabled (backward compatible)
+        dropout: float = 0.0,
         **kwargs,
     ):
         """
@@ -105,25 +106,26 @@ class ARVAE(BaseModel):
 
         # ── Encoder: [y_t (S), h (gru_hidden)] → (mu, logvar) ───────────────
         enc_in = input_size + gru_hidden + self.cond_dim
-        self.encoder = nn.Sequential(
-            nn.Linear(enc_in, hidden_size),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.LeakyReLU(0.1),
-        )
+        _enc_layers = [nn.Linear(enc_in, hidden_size), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _enc_layers.append(nn.Dropout(dropout))
+        _enc_layers += [nn.Linear(hidden_size, hidden_size // 2), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _enc_layers.append(nn.Dropout(dropout))
+        self.encoder = nn.Sequential(*_enc_layers)
         self.fc_mu     = nn.Linear(hidden_size // 2, latent_size)
         self.fc_logvar = nn.Linear(hidden_size // 2, latent_size)
 
         # ── Decoder: [z (latent_size), h (gru_hidden)] → y_hat (S,) ─────────
         dec_in = latent_size + gru_hidden + self.cond_dim
-        self.decoder = nn.Sequential(
-            nn.Linear(dec_in, hidden_size // 2),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hidden_size // 2, hidden_size),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hidden_size, input_size),
-            nn.ReLU(),  # precipitação não-negativa
-        )
+        _dec_layers = [nn.Linear(dec_in, hidden_size // 2), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _dec_layers.append(nn.Dropout(dropout))
+        _dec_layers += [nn.Linear(hidden_size // 2, hidden_size), nn.LeakyReLU(0.1)]
+        if dropout > 0.0:
+            _dec_layers.append(nn.Dropout(dropout))
+        _dec_layers += [nn.Linear(hidden_size, input_size), nn.ReLU()]
+        self.decoder = nn.Sequential(*_dec_layers)
 
     # ── Componentes internos ─────────────────────────────────────────────────
 

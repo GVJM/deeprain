@@ -1,0 +1,102 @@
+{
+  "defaults": {
+    "data_path": "../dados_sabesp/data_precip.dat",
+    "output_dir": "results/data_precip/outputs_v6_noise",
+    "job_type": "train",
+    "gpu_tier": 1,
+    "holdout_ratio": 0.15,
+    "val_ratio": 0.1,
+    "val_freq": 5,
+    "early_stop_patience": 50,
+    "max_epochs": 2000,
+    "ema_decay": 0.999,
+    "window_size": 7
+  },
+  "entries": [
+    {
+      "_comment": "=== ar_flow_match: input noise sweep ===",
+      "variant_name": "ar_flow_match_h256_l4_ns005_ema999",
+      "model": "ar_flow_match",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "n_sample_steps": 100,
+      "input_noise_std": 0.05
+    },
+    {
+      "variant_name": "ar_flow_match_h256_l4_ns010_ema999",
+      "model": "ar_flow_match",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "n_sample_steps": 100,
+      "input_noise_std": 0.1
+    },
+    {
+      "_comment": "=== ar_mean_flow: input noise sweep ===",
+      "variant_name": "ar_mean_flow_h256_l4_ns005_ema999",
+      "model": "ar_mean_flow",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "input_noise_std": 0.05
+    },
+    {
+      "variant_name": "ar_mean_flow_h256_l4_ns010_ema999",
+      "model": "ar_mean_flow",
+      "hidden_size": 256,
+      "n_layers": 4,
+      "rnn_hidden": 128,
+      "input_noise_std": 0.1
+    },
+    {
+      "_comment": "=== ar_latent_fm: input noise sweep ===",
+      "variant_name": "ar_latent_fm_h64_lat64_ns005_ema999",
+      "model": "ar_latent_fm",
+      "hidden_size": 64,
+      "n_layers": 4,
+      "latent_size": 64,
+      "n_sample_steps": 50,
+      "input_noise_std": 0.05
+    },
+    {
+      "variant_name": "ar_latent_fm_h64_lat64_ns010_ema999",
+      "model": "ar_latent_fm",
+      "hidden_size": 64,
+      "n_layers": 4,
+      "latent_size": 64,
+      "n_sample_steps": 50,
+      "input_noise_std": 0.1
+    },
+    {
+      "_comment": "=== ar_glow: input noise sweep ===",
+      "variant_name": "ar_glow_h64_ns005_ema999",
+      "model": "ar_glow",
+      "hidden_size": 64,
+      "rnn_hidden": 128,
+      "n_steps": 8,
+      "input_noise_std": 0.05
+    },
+    {
+      "variant_name": "ar_glow_h64_ns010_ema999",
+      "model": "ar_glow",
+      "hidden_size": 64,
+      "rnn_hidden": 128,
+      "n_steps": 8,
+      "input_noise_std": 0.1
+    },
+    {
+      "_comment": "=== ar_real_nvp: input noise sweep ===",
+      "variant_name": "ar_rnvp_h256_ns005_ema999",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "input_noise_std": 0.05
+    },
+    {
+      "variant_name": "ar_rnvp_h256_ns010_ema999",
+      "model": "ar_real_nvp",
+      "hidden_size": 256,
+      "n_coupling": 8,
+      "input_noise_std": 0.1
+    }
+  ]
+}

@@ -56,12 +56,16 @@ class _CondVelocityMLP(nn.Module):
     """
 
     def __init__(self, data_dim: int, t_embed_dim: int, gru_hidden: int, cond_dim: int,
-                 hidden: int = 256, n_layers: int = 4):
+                 hidden: int = 256, n_layers: int = 4, dropout: float = 0.0):
         super().__init__()
         in_dim = data_dim + t_embed_dim + gru_hidden + cond_dim
         layers = [nn.Linear(in_dim, hidden), nn.SiLU()]
+        if dropout > 0.0:
+            layers.append(nn.Dropout(dropout))
         for _ in range(n_layers - 1):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
         layers.append(nn.Linear(hidden, data_dim))
         self.net = nn.Sequential(*layers)
 
@@ -102,6 +106,7 @@ class ARFlowMatch(BaseModel):
         n_layers: int = 4,
         t_embed_dim: int = 64,
         n_sample_steps: int = 50,
+        dropout: float = 0.0,
         **kwargs,
     ):
         """
@@ -140,6 +145,7 @@ class ARFlowMatch(BaseModel):
             cond_dim=self.cond_dim,
             hidden=hidden_size,
             n_layers=n_layers,
+            dropout=dropout,
         )
         # Backward-compat: remap old checkpoints saved with key prefix "velocity."
         self._register_load_state_dict_pre_hook(self._remap_old_velocity_keys)
